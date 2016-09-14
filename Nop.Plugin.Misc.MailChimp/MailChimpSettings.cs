@@ -5,27 +5,23 @@ namespace Nop.Plugin.Misc.MailChimp
     public class MailChimpSettings : ISettings
     {
         /// <summary>
-        /// Gets or sets the API key.
+        /// Gets or sets the API key
         /// </summary>
-        /// <value>
-        /// The API key.
-        /// </value>
-        public virtual string ApiKey { get; set; }
+        public string ApiKey { get; set; }
 
         /// <summary>
-        /// Gets or sets the web hook key.
+        /// Gets or sets value indicating whether to use MailChimp E-Commerce API
         /// </summary>
-        /// <value>
-        /// The web hook key.
-        /// </value>
-        public virtual string WebHookKey { get; set; }
+        public bool UseEcommerceApi { get; set; }
 
         /// <summary>
-        /// Gets or sets the default list id.
+        /// Gets or sets list identifier of contacts
         /// </summary>
-        /// <value>
-        /// The default list id.
-        /// </value>
-        public virtual string DefaultListId { get; set; }
+        public string ListId { get; set; }
+
+        /// <summary>
+        /// Gets or sets webhook identifier 
+        /// </summary>
+        public string WebhookId { get; set; }
     }
 }

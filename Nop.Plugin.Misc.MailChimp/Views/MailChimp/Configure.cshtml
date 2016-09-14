@@ -1,0 +1,140 @@
+﻿@{
+    Layout = "";
+}
+@model Nop.Plugin.Misc.MailChimp.Models.MailChimpModel
+@using Nop.Web.Framework;
+
+@Html.Action("StoreScopeConfiguration", "Setting", new { area = "Admin" })
+
+@using (Html.BeginForm())
+{
+    @Html.AntiForgeryToken()
+    <div class="panel-group">
+        <div class="panel panel-default">
+
+            <script type="text/javascript">
+                $(document).ready(function () {
+                    $("#@Html.FieldIdFor(model => model.AutoSync)").click(toggleAutoSync);
+                    toggleAutoSync();
+                });
+
+                function toggleAutoSync() {
+                    if ($('#@Html.FieldIdFor(model => model.AutoSync)').is(':checked')) {
+                        $('#pnlAutoSyncEachMinutes').show();
+                    }
+                    else {
+                        $('#pnlAutoSyncEachMinutes').hide();
+                    }
+                };
+            </script>
+            
+            <div class="panel-body">
+                <p>
+                    To configure this plugin simply enter your MailChimp API key and select list of the synchronization.<br />
+                    Details about the feature MailChimp Ecommerce you can find on
+                    <a href="http://kb.mailchimp.com/integrations/e-commerce/how-to-use-mailchimp-for-e-commerce" target="_blank">this page</a><br />
+                </p>
+                <div class="form-group">
+                    <div class="col-md-3">
+                        @Html.NopLabelFor(model => model.ApiKey)
+                    </div>
+                    <div class="col-md-9">
+                        @Html.NopEditorFor(model => model.ApiKey)
+                        @Html.ValidationMessageFor(model => model.ApiKey)
+                    </div>
+                </div>
+                @if (!string.IsNullOrEmpty(Model.AccountInfo))
+                {
+                    <div class="form-group">
+                        <div class="col-md-3">
+                            @Html.NopLabelFor(model => model.AccountInfo)
+                        </div>
+                        <div class="col-md-9" style="white-space: pre-line">
+                            @Html.Raw(Model.AccountInfo)
+                        </div>
+                    </div>
+                }
+                <div class="form-group">
+                    <div class="col-md-3">
+                        @Html.NopLabelFor(model => model.UseEcommerceApi)
+                    </div>
+                    <div class="col-md-9">
+                        @Html.NopEditorFor(model => model.UseEcommerceApi)
+                        @Html.ValidationMessageFor(model => model.UseEcommerceApi)
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="col-md-3">
+                        @Html.NopLabelFor(model => model.AutoSync)
+                    </div>
+                    <div class="col-md-9">
+                        @Html.NopEditorFor(model => model.AutoSync)
+                        @Html.ValidationMessageFor(model => model.AutoSync)
+                    </div>
+                </div>
+                <div class="form-group" id="pnlAutoSyncEachMinutes">
+                    <div class="col-md-3">
+                        @Html.NopLabelFor(model => model.AutoSyncEachMinutes)
+                    </div>
+                    <div class="col-md-9">
+                        @Html.NopEditorFor(model => model.AutoSyncEachMinutes)
+                        @Html.ValidationMessageFor(model => model.AutoSyncEachMinutes)
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="col-md-3">
+                        @Html.OverrideStoreCheckboxFor(model => model.ListId_OverrideForStore, model => model.ListId, Model.ActiveStoreScopeConfiguration)
+                        @Html.NopLabelFor(model => model.ListId)
+                    </div>
+                    <div class="col-md-9">
+                        @Html.NopDropDownListFor(model => model.ListId, Model.AvailableLists)
+                        @Html.ValidationMessageFor(model => model.ListId)
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="col-md-9 col-md-offset-3">
+                        <input type="submit" name="save" class="btn btn-primary" value="@T("Admin.Common.Save")" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Model.ApiKey))
+        {
+            <div class="panel panel-default">
+            
+                <script type="text/javascript">
+                    $(document).ready(function () {
+                        if (@((Session["synchronization"] != null).ToString().ToLower())) {
+                            $('#synchronizationInfo').text('@T("Plugins.Misc.MailChimp.SynchronizationStart")');
+                            refresh();
+                        }
+                    });
+
+                    function refresh(){
+                        setTimeout(function() {
+                            $.get('@(Url.Action("GetSynchronizationInfo", "MailChimp"))', function(data) {
+                                $('#synchronizationInfo').text(data.info);
+                                if (!data.completed) {
+                                    refresh();
+                                }
+                            });
+                        }, 6000);
+                    };
+                </script>
+
+                <div class="panel-heading">
+                    @T("Plugins.Misc.MailChimp.ManualSync.Hint")
+                </div>
+                <div class="panel-body">
+                    <div id="synchronizationInfo" style="white-space: pre-line"></div>
+                </div>
+                <div class="panel-footer">
+                    <button type="submit" name="synchronization" class="btn bg-primary">
+                        @T("Plugins.Misc.MailChimp.ManualSync")
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+}

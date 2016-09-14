@@ -7,9 +7,9 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyTitle("Nop.Plugin.Misc.MailChimp")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("")]
+[assembly: AssemblyCompany("Nop Solutions, Ltd")]
 [assembly: AssemblyProduct("Nop.Plugin.Misc.MailChimp")]
-[assembly: AssemblyCopyright("Copyright © Nop Solutions, Ltd 2010")]
+[assembly: AssemblyCopyright("Copyright © Nop Solutions, Ltd")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 

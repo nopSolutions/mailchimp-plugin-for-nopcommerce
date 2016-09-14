@@ -5,6 +5,9 @@ namespace Nop.Plugin.Misc.MailChimp.Data
 {
     public class EfStartUpTask : IStartupTask
     {
+        /// <summary>
+        /// Executes a task
+        /// </summary>
         public void Execute()
         {
             //It's required to set initializer to null (for SQL Server Compact).

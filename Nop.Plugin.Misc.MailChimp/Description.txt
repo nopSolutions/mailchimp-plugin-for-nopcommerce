@@ -1,8 +1,9 @@
 ﻿Group: Misc
-FriendlyName: MailChimp e-mail synchronization
+FriendlyName: MailChimp
 SystemName: Misc.MailChimp
-Version: 1.18
-SupportedVersions: 3.70
+Version: 2.0
+SupportedVersions: 3.80
 Author: nopCommerce team
 DisplayOrder: 1
 FileName: Nop.Plugin.Misc.MailChimp.dll
+Description: This plugin allows to integrate with MailChimp service

@@ -1,84 +1,110 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data.Entity;
 using System.Data.Entity.Infrastructure;
 using Nop.Core;
 using Nop.Data;
+using Nop.Plugin.Misc.MailChimp.Domain;
 
 namespace Nop.Plugin.Misc.MailChimp.Data
 {
+    /// <summary>
+    /// MailChimp object context
+    /// </summary>
     public class MailChimpObjectContext : DbContext, IDbContext
     {
+        #region Ctor
+
         public MailChimpObjectContext(string nameOrConnectionString) : base(nameOrConnectionString) { }
 
+        #endregion
+
+        #region Properties
+
         /// <summary>
-        /// This method is called when the model for a derived context has been initialized, but
-        /// before the model has been locked down and used to initialize the context.  The default
-        /// implementation of this method does nothing, but it can be overridden in a derived class
-        /// such that the model can be further configured before it is locked down.
+        /// Gets or sets a value indicating whether proxy creation setting is enabled (used in EF)
         /// </summary>
-        /// <param name="modelBuilder">The builder that defines the model for the context being created.</param>
+        public virtual bool ProxyCreationEnabled
+        {
+            get { return this.Configuration.ProxyCreationEnabled; }
+            set { this.Configuration.ProxyCreationEnabled = value; }
+        }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether auto detect changes setting is enabled (used in EF)
+        /// </summary>
+        public virtual bool AutoDetectChangesEnabled
+        {
+            get { return this.Configuration.AutoDetectChangesEnabled; }
+            set { this.Configuration.AutoDetectChangesEnabled = value; }
+        }
+
+        #endregion
+
+        #region Utilities
+
+        /// <summary>
+        /// Add entity to the configuration of the model for a derived context before it is locked down
+        /// </summary>
+        /// <param name="modelBuilder">The builder that defines the model for the context being created</param>
         protected override void OnModelCreating(DbModelBuilder modelBuilder)
         {
-            modelBuilder.Configurations.Add(new MailChimpEventQueueRecordMap());
+            modelBuilder.Configurations.Add(new SynchronizationRecordMap());
 
             //disable EdmMetadata generation
             //modelBuilder.Conventions.Remove<IncludeMetadataConvention>();
             base.OnModelCreating(modelBuilder);
         }
 
+        #endregion
+
+        #region Methods
+
         /// <summary>
-        /// Creates the database script.
+        /// Generates a data definition language script that creates schema objects
         /// </summary>
-        /// <returns></returns>
+        /// <returns>A DDL script</returns>
         public string CreateDatabaseScript()
         {
             return ((IObjectContextAdapter)this).ObjectContext.CreateDatabaseScript();
         }
 
         /// <summary>
-        /// Installs the database schema.
+        /// Returns a System.Data.Entity.DbSet`1 instance for access to entities of the given type in the context and the underlying store
         /// </summary>
-        public void Install()
-        {
-            //It's required to set initializer to null (for SQL Server Compact).
-            //otherwise, you'll get something like "The model backing the 'your context name' context has changed since the database was created. Consider using Code First Migrations to update the database"
-            Database.SetInitializer<MailChimpObjectContext>(null);
-
-            //create the table
-            var dbScript = CreateDatabaseScript();
-            Database.ExecuteSqlCommand(dbScript);
-            SaveChanges();
-        }
-
-        /// <summary>
-        /// Uninstalls the database schema .
-        /// </summary>
-        public void Uninstall()
-        {
-            //drop the table
-            var tableName = this.GetTableName<MailChimpEventQueueRecord>();
-            //var tableName = "MailChimpEventQueueRecord";
-            this.DropPluginTable(tableName);
-        }
-
-        /// <summary>
-        /// Sets this instance.
-        /// </summary>
-        /// <typeparam name="TEntity">The type of the entity.</typeparam>
-        /// <returns></returns>
+        /// <typeparam name="TEntity">The type entity for which a set should be returned</typeparam>
+        /// <returns>A set for the given entity type</returns>
         public new IDbSet<TEntity> Set<TEntity>() where TEntity : BaseEntity
         {
             return base.Set<TEntity>();
         }
 
         /// <summary>
-        /// Executes the stored procedure list.
+        /// Install object context
         /// </summary>
-        /// <typeparam name="TEntity">The type of the entity.</typeparam>
-        /// <param name="commandText">The command text.</param>
-        /// <param name="parameters">The parameters.</param>
-        /// <returns></returns>
+        public void Install()
+        {
+            //create the table
+            Database.ExecuteSqlCommand(CreateDatabaseScript());
+            SaveChanges();
+        }
+
+        /// <summary>
+        /// Uninstall object context
+        /// </summary>
+        public void Uninstall()
+        {
+            //drop the table
+            this.DropPluginTable(this.GetTableName<MailChimpSynchronizationRecord>());
+        }
+
+        /// <summary>
+        /// Execute stores procedure and load a list of entities at the end
+        /// </summary>
+        /// <typeparam name="TEntity">Entity type</typeparam>
+        /// <param name="commandText">Command text</param>
+        /// <param name="parameters">Parameters</param>
+        /// <returns>Entities</returns>
         public IList<TEntity> ExecuteStoredProcedureList<TEntity>(string commandText, params object[] parameters) where TEntity : BaseEntity, new()
         {
             throw new NotImplementedException();
@@ -121,34 +147,6 @@ namespace Nop.Plugin.Misc.MailChimp.Data
             ((IObjectContextAdapter)this).ObjectContext.Detach(entity);
         }
 
-        /// <summary>
-        /// Gets or sets a value indicating whether proxy creation setting is enabled (used in EF)
-        /// </summary>
-        public virtual bool ProxyCreationEnabled
-        {
-            get
-            {
-                return this.Configuration.ProxyCreationEnabled;
-            }
-            set
-            {
-                this.Configuration.ProxyCreationEnabled = value;
-            }
-        }
-
-        /// <summary>
-        /// Gets or sets a value indicating whether auto detect changes setting is enabled (used in EF)
-        /// </summary>
-        public virtual bool AutoDetectChangesEnabled
-        {
-            get
-            {
-                return this.Configuration.AutoDetectChangesEnabled;
-            }
-            set
-            {
-                this.Configuration.AutoDetectChangesEnabled = value;
-            }
-        }
+        #endregion
     }
 }

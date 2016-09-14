@@ -8,8 +8,9 @@ namespace Nop.Plugin.Misc.MailChimp
     {
         public void RegisterRoutes(RouteCollection routes)
         {
-            routes.MapRoute("Plugin.Misc.MailChimp.WebHook", "Plugins/MiscMailChimp/WebHook/{webHookKey}",
-                new { controller = "WebHooks", action = "index" },
+            routes.MapRoute("Plugin.Misc.MailChimp.Webhook",
+                "Plugins/MailChimp/Webhook",
+                new { controller = "MailChimp", action = "WebHook" },
                 new[] { "Nop.Plugin.Misc.MailChimp.Controllers" });
         }
 
