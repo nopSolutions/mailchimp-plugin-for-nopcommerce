@@ -224,7 +224,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             {
                 var listId = _settingService.GetSettingByKey<string>("mailchimpsettings.listid", storeId: store.Id, loadSharedValueIfNotFound: true);
                 if (string.IsNullOrEmpty(listId))
-                    return null;
+                    return new List<Operation>();
 
                 return newSubscriptions.Where(subscription => subscription.StoreId == store.Id).Select(subscription =>
                 {
@@ -275,7 +275,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             {
                 var listId = _settingService.GetSettingByKey<string>("mailchimpsettings.listid", storeId: store.Id, loadSharedValueIfNotFound: true);
                 if (string.IsNullOrEmpty(listId))
-                    return null;
+                    return new List<Operation>();
 
                 return updatedSubscriptions.Where(subscription => subscription.StoreId == store.Id).Select(subscription =>
                 {
@@ -325,7 +325,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             {
                 var listId = _settingService.GetSettingByKey<string>("mailchimpsettings.listid", storeId: store.Id, loadSharedValueIfNotFound: true);
                 if (string.IsNullOrEmpty(listId))
-                    return null;
+                    return new List<Operation>();
 
                 //a little workaround here - we check if subscription already not exists for the particular store then remove it from MailChimp
                 return deletedSubscriptions.Where(subscription =>
