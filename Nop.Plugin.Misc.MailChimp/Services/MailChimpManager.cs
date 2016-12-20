@@ -59,6 +59,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         private readonly IStoreMappingService _storeMappingService;
         private readonly IStoreService _storeService;
         private readonly ISynchronizationRecordService _synchronizationRecordService;
+        private readonly IWebHelper _webHelper;
 
         #endregion
 
@@ -83,7 +84,8 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             IStoreContext storeContext,
             IStoreMappingService storeMappingService,
             IStoreService storeService,
-            ISynchronizationRecordService synchronizationRecordService)
+            ISynchronizationRecordService synchronizationRecordService,
+            IWebHelper webHelper)
         {
             this._currencySettings = currencySettings;
             this._countryService = countryService;
@@ -105,6 +107,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             this._storeContext = storeContext;
             this._storeService = storeService;
             this._synchronizationRecordService = synchronizationRecordService;
+            this._webHelper = webHelper;
         }
 
         #endregion
@@ -401,7 +404,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                         Id = store.Id.ToString(),
                         ListId = _settingService.GetSettingByKey<string>("mailchimpsettings.listid", storeId: store.Id, loadSharedValueIfNotFound: true),
                         Name = store.Name,
-                        Domain = store.SslEnabled ? store.SecureUrl : store.Url,
+                        Domain = _webHelper.GetStoreLocation(store.SslEnabled),
                         CurrencyCode = currency,
                         PrimaryLocale = (_languageService.GetLanguageById(store.DefaultLanguageId) ?? _languageService.GetAllLanguages().First()).UniqueSeoCode,
                         Phone = store.CompanyPhoneNumber,
@@ -428,7 +431,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                     {
                         ListId = _settingService.GetSettingByKey<string>("mailchimpsettings.listid", storeId: store.Id, loadSharedValueIfNotFound: true),
                         Name = store.Name,
-                        Domain = store.SslEnabled ? store.SecureUrl : store.Url,
+                        Domain = _webHelper.GetStoreLocation(store.SslEnabled),
                         CurrencyCode = currency,
                         PrimaryLocale = (_languageService.GetLanguageById(store.DefaultLanguageId) ?? _languageService.GetAllLanguages().First()).UniqueSeoCode,
                         Phone = store.CompanyPhoneNumber,
@@ -862,7 +865,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// <returns>URL</returns>
         protected string GetProductUrl(Store store, Product product)
         {
-            return string.Format("{0}{1}", store.SslEnabled ? store.SecureUrl : store.Url, product.GetSeName());
+            return string.Format("{0}{1}", _webHelper.GetStoreLocation(store.SslEnabled), product.GetSeName());
         }
 
         /// <summary>
@@ -1289,7 +1292,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                     {
                         Id = customer.Id.ToString(),
                         Customer = new model.Customer { Id = customer.Id.ToString() },
-                        CheckoutUrl = string.Format("{0}cart/", store.SslEnabled ? store.SecureUrl : store.Url),
+                        CheckoutUrl = string.Format("{0}cart/", _webHelper.GetStoreLocation(store.SslEnabled)),
                         CurrencyCode = currency,
                         OrderTotal = lines.Sum(line => line.Price),
                         Lines = lines
@@ -1473,8 +1476,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             catch (MailChimpNotFoundException) { }
 
             //create new one
-            var url = string.Format("{0}Plugins/MailChimp/Webhook", _storeContext.CurrentStore.SslEnabled
-                ? _storeContext.CurrentStore.SecureUrl : _storeContext.CurrentStore.Url);
+            var url = string.Format("{0}Plugins/MailChimp/Webhook", _webHelper.GetStoreLocation(_storeContext.CurrentStore.SslEnabled));
             var batch = await Manager.Batches.AddAsync(new BatchRequest
             {
                 Operations = new List<Operation>
