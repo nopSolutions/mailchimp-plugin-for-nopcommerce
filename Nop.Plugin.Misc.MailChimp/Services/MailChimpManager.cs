@@ -1450,7 +1450,8 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             if (!IsConfigured)
                 return result;
 
-            var availableLists = await Manager.Lists.GetAllAsync();
+            var totalItems = (await Manager.Lists.GetResponseAsync()).TotalItems;
+            var availableLists = await Manager.Lists.GetAllAsync(new ListRequest { Limit = totalItems });
             result.AddRange(availableLists.Select(list => new SelectListItem { Text = list.Name, Value = list.Id }));
 
             return result;
