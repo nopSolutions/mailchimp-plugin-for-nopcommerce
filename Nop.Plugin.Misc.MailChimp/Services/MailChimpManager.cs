@@ -738,7 +738,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// <returns>Default product variant</returns>
         protected model.Variant CreateDefaultProductVariant(Store store, Product product)
         {
-            var price = (double)(product.GetSpecialPrice() ?? product.Price);
+            var price =  (double)product.Price;
             var quantity = product.ManageInventoryMethod != ManageInventoryMethod.DontManageStock ? product.StockQuantity : int.MaxValue;
             var imageUrl = GetImageUrl(store, product);
             var url = GetProductUrl(store, product);
@@ -762,7 +762,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                     var url = GetProductUrl(store, attribute.Product);
                     var title = attribute.ProductAttribute != null
                         ? string.Format("{0} {1}", attribute.Product.Name, attribute.ProductAttribute.Name) : attribute.Product.Name;
-                    var price = (double)(attribute.Product.GetSpecialPrice() ?? attribute.Product.Price);
+                    var price = (double)attribute.Product.Price;
                     var quantity = attribute.Product.ManageInventoryMethod != ManageInventoryMethod.DontManageStock ? attribute.Product.StockQuantity : int.MaxValue;
 
                     return CreateProductVariant(string.Format("{0}_a_{1}", attribute.ProductId, attribute.Id), title, url, attribute.Product.Sku, price,
@@ -786,7 +786,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                         : value.ProductAttributeMapping.Product.ManageInventoryMethod != ManageInventoryMethod.DontManageStock
                         ? value.ProductAttributeMapping.Product.StockQuantity : int.MaxValue;
                     var title = string.Format("{0} {1}", value.ProductAttributeMapping.Product.Name, value.Name);
-                    var valuePrice = (double)(value.ProductAttributeMapping.Product.GetSpecialPrice() ?? value.ProductAttributeMapping.Product.Price
+                    var valuePrice = (double)(value.ProductAttributeMapping.Product.Price
                         + _priceCalculationService.GetProductAttributeValuePriceAdjustment(value));
                     var valueImageUrl = value.ImageSquaresPictureId > 0
                         ? _pictureService.GetPictureUrl(_pictureService.GetPictureById(value.ImageSquaresPictureId))
@@ -812,7 +812,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 var combinationQuantity = combination.Product.ManageInventoryMethod == ManageInventoryMethod.ManageStockByAttributes ? combination.StockQuantity
                     : combination.Product.ManageInventoryMethod != ManageInventoryMethod.DontManageStock ? combination.Product.StockQuantity : int.MaxValue;
                 var sku = !string.IsNullOrEmpty(combination.Sku) ? combination.Sku : combination.Product.Sku;
-                var combinationPrice = (double)(combination.OverriddenPrice ?? combination.Product.GetSpecialPrice() ?? combination.Product.Price);
+                var combinationPrice = (double)(combination.OverriddenPrice ?? combination.Product.Price);
 
                 return CreateProductVariant(string.Format("{0}_c_{1}", combination.ProductId, combination.Id), combination.Product.Name, url, sku,
                     combinationPrice, combinationQuantity, imageUrl, combination.Product.Published);

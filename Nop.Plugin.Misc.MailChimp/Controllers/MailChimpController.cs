@@ -98,7 +98,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
             //prepare available lists
             model.AvailableLists = tasks.Task.Run(() => _mailChimpManager.GetAvailableLists()).Result;
 
-            return View("~/Plugins/Misc.MailChimp/Views/MailChimp/Configure.cshtml", model);
+            return View("~/Plugins/Misc.MailChimp/Views/Configure.cshtml", model);
         }
 
         [AdminAuthorize]

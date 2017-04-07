@@ -169,7 +169,7 @@ namespace Nop.Plugin.Misc.MailChimp.Infrastructure.Cache
         public void HandleEvent(EmailUnsubscribedEvent unsubscription)
         {
             if (PluginIsActive)
-                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Subscription, 0, ActionType.Delete, unsubscription.Email);
+                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Subscription, 0, ActionType.Delete, unsubscription.Subscription.Email);
         }
 
         /// <summary>
