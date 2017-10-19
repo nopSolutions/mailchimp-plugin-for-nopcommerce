@@ -1,6 +1,7 @@
 ﻿using System.Net;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using tasks = System.Threading.Tasks;
-using System.Web.Mvc;
 using Nop.Core;
 using Nop.Core.Domain.Tasks;
 using Nop.Plugin.Misc.MailChimp.Domain;
@@ -11,6 +12,9 @@ using Nop.Services.Localization;
 using Nop.Services.Stores;
 using Nop.Services.Tasks;
 using Nop.Web.Framework.Controllers;
+using Nop.Core.Http.Extensions;
+using Nop.Web.Framework;
+using Nop.Web.Framework.Mvc.Filters;
 
 namespace Nop.Plugin.Misc.MailChimp.Controllers
 {
@@ -64,9 +68,9 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
 
         #region Methods
 
-        [AdminAuthorize]
-        [ChildActionOnly]
-        public ActionResult Configure()
+        [AuthorizeAdmin]
+        [Area(AreaNames.Admin)]
+        public IActionResult Configure()
         {
             //load settings for a chosen store scope
             var storeId = GetActiveStoreScopeConfiguration(_storeService, _workContext);
@@ -101,11 +105,11 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
             return View("~/Plugins/Misc.MailChimp/Views/Configure.cshtml", model);
         }
 
-        [AdminAuthorize]
-        [ChildActionOnly]
         [HttpPost, ActionName("Configure")]
         [FormValueRequired("save")]
-        public ActionResult Configure(MailChimpModel model)
+        [AuthorizeAdmin]
+        [Area(AreaNames.Admin)]
+        public IActionResult Configure(MailChimpModel model)
         {
             if (!ModelState.IsValid)
                 return Configure();
@@ -188,11 +192,11 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
             return Configure();
         }
 
-        [AdminAuthorize]
-        [ChildActionOnly]
         [HttpPost, ActionName("Configure")]
         [FormValueRequired("synchronization")]
-        public ActionResult Synchronization(MailChimpModel model)
+        [AuthorizeAdmin]
+        [Area(AreaNames.Admin)]
+        public IActionResult Synchronization(MailChimpModel model)
         {
             if (!ModelState.IsValid)
                 return Configure();
@@ -208,8 +212,8 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
 
             if (!string.IsNullOrEmpty(batchId))
             {
-                Session.Add("synchronization", true);
-                Session.Add("batchId", batchId);
+                HttpContext.Session.Set("synchronization", true);
+                HttpContext.Session.Set("batchId", batchId);
             }
             else
                 ErrorNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.SynchronizationError"));
@@ -219,30 +223,30 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
 
         public JsonResult GetSynchronizationInfo()
         {
-            if (Session["batchId"] == null)
+            if (HttpContext.Session.GetString("batchId") == null)
             {
-                Session.Remove("synchronization");
-                return Json(new { completed = true, info = string.Empty }, JsonRequestBehavior.AllowGet);
+                HttpContext.Session.Remove("synchronization");
+                return Json(new {completed = true, info = string.Empty}); 
             }
 
-            var batchInfo = tasks.Task.Run(() => _mailChimpManager.GetBatchInfo(Session["batchId"].ToString())).Result;
+            var batchInfo = tasks.Task.Run(() => _mailChimpManager.GetBatchInfo(HttpContext.Session.GetString("batchId"))).Result;
 
             //batch completed 
             if (batchInfo.Item1)
             {
-                Session.Remove("batchId");
-                Session.Remove("synchronization");
+                HttpContext.Session.Remove("batchId");
+                HttpContext.Session.Remove("synchronization");
             }
 
-            return Json(new { completed = batchInfo.Item1, info = batchInfo.Item2 }, JsonRequestBehavior.AllowGet);
+            return Json(new { completed = batchInfo.Item1, info = batchInfo.Item2 });
         }
 
-        public ActionResult WebHook(FormCollection form)
+        public IActionResult WebHook()
         {
-            if (form.Count > 0)
-                _mailChimpManager.WebhookHandler(form);
+            if (Request.Form.Count > 0)
+                _mailChimpManager.WebhookHandler(Request.Form);
 
-            return new HttpStatusCodeResult(HttpStatusCode.OK);
+            return new StatusCodeResult((int)HttpStatusCode.OK);
         }
 
         #endregion

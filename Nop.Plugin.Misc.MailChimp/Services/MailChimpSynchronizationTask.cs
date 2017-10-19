@@ -3,7 +3,7 @@ using Nop.Services.Tasks;
 
 namespace Nop.Plugin.Misc.MailChimp.Services
 {
-    public class MailChimpSynchronizationTask : ITask
+    public class MailChimpSynchronizationTask : IScheduleTask
     {
         private readonly IPluginFinder _pluginFinder;
 
@@ -19,14 +19,10 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         {
             //ensure that plugin exists
             var pluginDescriptor = _pluginFinder.GetPluginDescriptorBySystemName("Misc.MailChimp");
-            if (pluginDescriptor == null)
-                return;
 
-            var plugin = pluginDescriptor.Instance() as MailChimpPlugin;
-            if (plugin == null)
-                return;
+            var plugin = pluginDescriptor?.Instance() as MailChimpPlugin;
 
-            plugin.Synchronize();
+            plugin?.Synchronize();
         }
     }
 }

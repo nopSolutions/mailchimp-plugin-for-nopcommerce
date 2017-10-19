@@ -26,8 +26,8 @@ namespace Nop.Plugin.Misc.MailChimp.Data
         /// </summary>
         public virtual bool ProxyCreationEnabled
         {
-            get { return this.Configuration.ProxyCreationEnabled; }
-            set { this.Configuration.ProxyCreationEnabled = value; }
+            get { return Configuration.ProxyCreationEnabled; }
+            set { Configuration.ProxyCreationEnabled = value; }
         }
 
         /// <summary>
@@ -35,8 +35,8 @@ namespace Nop.Plugin.Misc.MailChimp.Data
         /// </summary>
         public virtual bool AutoDetectChangesEnabled
         {
-            get { return this.Configuration.AutoDetectChangesEnabled; }
-            set { this.Configuration.AutoDetectChangesEnabled = value; }
+            get { return Configuration.AutoDetectChangesEnabled; }
+            set { Configuration.AutoDetectChangesEnabled = value; }
         }
 
         #endregion
@@ -142,7 +142,7 @@ namespace Nop.Plugin.Misc.MailChimp.Data
         public void Detach(object entity)
         {
             if (entity == null)
-                throw new ArgumentNullException("entity");
+                throw new ArgumentNullException(nameof(entity));
 
             ((IObjectContextAdapter)this).ObjectContext.Detach(entity);
         }

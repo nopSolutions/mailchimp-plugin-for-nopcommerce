@@ -1,17 +1,14 @@
-﻿using System.Web.Mvc;
-using System.Web.Routing;
-using Nop.Web.Framework.Mvc.Routes;
+﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Routing;
+using Nop.Web.Framework.Mvc.Routing;
 
 namespace Nop.Plugin.Misc.MailChimp
 {
     public class RouteProvider : IRouteProvider
     {
-        public void RegisterRoutes(RouteCollection routes)
+        public void RegisterRoutes(IRouteBuilder routeBuilder)
         {
-            routes.MapRoute("Plugin.Misc.MailChimp.Webhook",
-                "Plugins/MailChimp/Webhook",
-                new { controller = "MailChimp", action = "WebHook" },
-                new[] { "Nop.Plugin.Misc.MailChimp.Controllers" });
+            routeBuilder.MapRoute("Plugin.Misc.MailChimp.Webhook", "Plugins/MailChimp/Webhook", new { controller = "MailChimp", action = "WebHook" });
         }
 
         public int Priority

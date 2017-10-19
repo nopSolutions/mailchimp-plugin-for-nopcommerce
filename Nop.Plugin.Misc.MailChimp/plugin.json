@@ -1,0 +1,11 @@
+﻿{
+  "Group": "Misc",
+  "FriendlyName": "MailChimp",
+  "SystemName": "Misc.MailChimp",
+  "Version": "2.20",
+  "SupportedVersions": [ "4.00" ],
+  "Author": "nopCommerce team",
+  "DisplayOrder": 1,
+  "FileName": "Nop.Plugin.Misc.MailChimp.dll",
+  "Description": "This plugin allows to integrate with MailChimp service"
+}

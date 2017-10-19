@@ -1,4 +1,4 @@
-﻿using System.Web.Routing;
+﻿using Nop.Core;
 using Nop.Core.Domain.Tasks;
 using Nop.Core.Plugins;
 using Nop.Plugin.Misc.MailChimp.Data;
@@ -23,6 +23,7 @@ namespace Nop.Plugin.Misc.MailChimp
         private readonly IStoreService _storeService;
         private readonly MailChimpManager _mailChimpManager;
         private readonly MailChimpObjectContext _mailChimpObjectContext;
+        private readonly IWebHelper _webHelper;
 
         #endregion
 
@@ -32,13 +33,15 @@ namespace Nop.Plugin.Misc.MailChimp
             ISettingService settingService,
             IStoreService storeService,
             MailChimpManager mailChimpManager,
-            MailChimpObjectContext mailChimpObjectContext)
+            MailChimpObjectContext mailChimpObjectContext,
+            IWebHelper webHelper)
         {
             this._scheduleTaskService = scheduleTaskService;
             this._settingService = settingService;
             this._storeService = storeService;
             this._mailChimpManager = mailChimpManager;
             this._mailChimpObjectContext = mailChimpObjectContext;
+            this._webHelper = webHelper;
         }
 
         #endregion
@@ -51,20 +54,7 @@ namespace Nop.Plugin.Misc.MailChimp
         public void Synchronize()
         {
             //we try to get a result, otherwise scheduled task does not start manually
-            var result = System.Threading.Tasks.Task.Run(() => _mailChimpManager.Synchronize()).Result;
-        }
-
-        /// <summary>
-        /// Gets a route for plugin configuration
-        /// </summary>
-        /// <param name="actionName">Action name</param>
-        /// <param name="controllerName">Controller name</param>
-        /// <param name="routeValues">Route values</param>
-        public void GetConfigurationRoute(out string actionName, out string controllerName, out RouteValueDictionary routeValues)
-        {
-            actionName = "Configure";
-            controllerName = "MailChimp";
-            routeValues = new RouteValueDictionary { { "Namespaces", "Nop.Plugin.Misc.MailChimp.Controllers" }, { "area", null } };
+            var unused = System.Threading.Tasks.Task.Run(() => _mailChimpManager.Synchronize()).Result;
         }
 
         /// <summary>
@@ -158,6 +148,11 @@ namespace Nop.Plugin.Misc.MailChimp
             this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.WebhookError");
 
             base.Uninstall();
+        }
+
+        public override string GetConfigurationPageUrl()
+        {
+            return $"{_webHelper.GetStoreLocation()}Admin/MailChimp/Configure";
         }
 
         #endregion

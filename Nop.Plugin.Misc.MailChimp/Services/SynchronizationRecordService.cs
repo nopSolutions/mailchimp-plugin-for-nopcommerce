@@ -139,7 +139,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         public virtual void InsertRecord(MailChimpSynchronizationRecord record)
         {
             if (record == null)
-                throw new ArgumentNullException("record");
+                throw new ArgumentNullException(nameof(record));
 
             _synchronizationRecordRepository.Insert(record);
             _cacheManager.RemoveByPattern(SYNCHRONIZATION_RECORD_PATTERN_KEY);
@@ -152,7 +152,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         public virtual void UpdateRecord(MailChimpSynchronizationRecord record)
         {
             if (record == null)
-                throw new ArgumentNullException("record");
+                throw new ArgumentNullException(nameof(record));
 
             _synchronizationRecordRepository.Update(record);
             _cacheManager.RemoveByPattern(SYNCHRONIZATION_RECORD_PATTERN_KEY);
@@ -165,7 +165,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         public virtual void DeleteRecord(MailChimpSynchronizationRecord record)
         {
             if (record == null)
-                throw new ArgumentNullException("record");
+                throw new ArgumentNullException(nameof(record));
 
             _synchronizationRecordRepository.Delete(record);
             _cacheManager.RemoveByPattern(SYNCHRONIZATION_RECORD_PATTERN_KEY);

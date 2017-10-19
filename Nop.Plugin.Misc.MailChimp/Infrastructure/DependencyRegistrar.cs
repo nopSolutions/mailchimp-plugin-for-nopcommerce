@@ -8,7 +8,7 @@ using Nop.Plugin.Misc.MailChimp.Data;
 using Nop.Plugin.Misc.MailChimp.Domain;
 using Nop.Plugin.Misc.MailChimp.Services;
 using Nop.Data;
-using Nop.Web.Framework.Mvc;
+using Nop.Web.Framework.Infrastructure;
 
 namespace Nop.Plugin.Misc.MailChimp.Infrastructure 
 {

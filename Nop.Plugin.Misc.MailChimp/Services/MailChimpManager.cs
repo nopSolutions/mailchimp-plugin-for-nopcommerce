@@ -1,10 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Web.Mvc;
 using System.Threading.Tasks;
 using mailChimp = MailChimp.Net;
 using MailChimp.Net.Core;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc.Rendering;
 using model = MailChimp.Net.Models;
 using Newtonsoft.Json;
 using Nop.Core;
@@ -1477,7 +1478,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             catch (MailChimpNotFoundException) { }
 
             //create new one
-            var url = string.Format("{0}Plugins/MailChimp/Webhook", _webHelper.GetStoreLocation(_storeContext.CurrentStore.SslEnabled));
+            var url = $"{_webHelper.GetStoreLocation(_storeContext.CurrentStore.SslEnabled)}Plugins/MailChimp/Webhook";
             var batch = await Manager.Batches.AddAsync(new BatchRequest
             {
                 Operations = new List<Operation>
@@ -1485,8 +1486,8 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                     new Operation
                     {
                         Method = "POST",
-                        Path = string.Format("/lists/{0}/webhooks", listId),
-                        OperationId = string.Format("create_webhook_to_list_#{0}", listId),
+                        Path = $"/lists/{listId}/webhooks",
+                        OperationId = $"create_webhook_to_list_#{listId}",
                         Body = JsonConvert.SerializeObject(new WebHook
                         {
                             ListId = listId,
@@ -1541,23 +1542,22 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 return new Tuple<bool, string>(true, string.Empty);
 
             var batch = await Manager.Batches.GetBatchStatus(batchId);
-            var info = string.Format("Started at: {1}{0}Finished operations: {2}{0}Errored operations: {3}{0}Total operations: {4}{0}",
-                Environment.NewLine, batch.SubmittedAt, batch.FinishedOperations, batch.ErroredOperations, batch.TotalOperations);
+            var info = $"Started at: {batch.SubmittedAt}{Environment.NewLine}Finished operations: {batch.FinishedOperations}{Environment.NewLine}Errored operations: {batch.ErroredOperations}{Environment.NewLine}Total operations: {batch.TotalOperations}{Environment.NewLine}";
 
             return BatchOperationIsComplete(batch)
-                ? new Tuple<bool, string>(true, string.Format("{0}Completed at: {1}", info, batch.CompletedAt)) : new Tuple<bool, string>(false, info);
+                ? new Tuple<bool, string>(true, $"{info}Completed at: {batch.CompletedAt}") : new Tuple<bool, string>(false, info);
         }
 
         /// <summary>
         /// Subscribe or unsubscribe particular email
         /// </summary>
         /// <param name="form">Input parameters</param>
-        public void WebhookHandler(FormCollection form)
+        public void WebhookHandler(IFormCollection form)
         {
             if (!IsConfigured)
                 return;
-
-            if (form["data[list_id]"] == null || form["type"] == null)
+            
+            if (string.IsNullOrEmpty(form["data[list_id]"]) || string.IsNullOrEmpty(form["type"]))
                 return;
 
             foreach (var store in _storeService.GetAllStores())
@@ -1568,7 +1568,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
 
                 //get subscription by email and store identifier
                 var subscription = _newsLetterSubscriptionService.GetNewsLetterSubscriptionByEmailAndStoreId(form["data[email]"], store.Id);
-                switch (form["type"].ToLowerInvariant())
+                switch (form["type"].ToString().ToLowerInvariant())
                 {
                     case "unsubscribe":
                         if (subscription != null)
@@ -1576,7 +1576,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                             //deactivate subscription
                             subscription.Active = false;
                             _newsLetterSubscriptionService.UpdateNewsLetterSubscription(subscription, false);
-                            _logger.Information(string.Format("MailChimp: email {0} unsubscribed from store {1}", form["data[email]"], store.Name));
+                            _logger.Information($"MailChimp: email {form["data[email]"]} unsubscribed from store {store.Name}");
                         }
                         break;
                     case "subscribe":
@@ -1596,7 +1596,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                                 Active = true,
                                 CreatedOnUtc = DateTime.UtcNow
                             }, false);
-                        _logger.Information(string.Format("MailChimp: email {0} subscribed to store {1}", form["data[email]"], store.Name));
+                        _logger.Information($"MailChimp: email {form["data[email]"]} subscribed to store {store.Name}");
                         break;
                 }
             }

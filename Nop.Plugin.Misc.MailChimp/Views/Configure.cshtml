@@ -1,25 +1,23 @@
 ﻿@{
-    Layout = "";
+    Layout = "_ConfigurePlugin";
 }
+@using Microsoft.AspNetCore.Http
 @model Nop.Plugin.Misc.MailChimp.Models.MailChimpModel
-@using Nop.Web.Framework;
 
-@Html.Action("StoreScopeConfiguration", "Setting", new { area = "Admin" })
+@await Component.InvokeAsync("StoreScopeConfiguration")
 
-@using (Html.BeginForm())
-{
-    @Html.AntiForgeryToken()
+<form asp-controller="MailChimp" asp-action="Configure" method="post">
     <div class="panel-group">
         <div class="panel panel-default">
 
             <script type="text/javascript">
                 $(document).ready(function () {
-                    $("#@Html.FieldIdFor(model => model.AutoSync)").click(toggleAutoSync);
+                    $("#@Html.IdFor(model => model.AutoSync)").click(toggleAutoSync);
                     toggleAutoSync();
                 });
 
                 function toggleAutoSync() {
-                    if ($('#@Html.FieldIdFor(model => model.AutoSync)').is(':checked')) {
+                    if ($('#@Html.IdFor(model => model.AutoSync)').is(':checked')) {
                         $('#pnlAutoSyncEachMinutes').show();
                     }
                     else {
@@ -27,7 +25,7 @@
                     }
                 };
             </script>
-            
+
             <div class="panel-body">
                 <p>
                     To configure this plugin simply enter your MailChimp API key and select list of the synchronization.<br />
@@ -36,18 +34,18 @@
                 </p>
                 <div class="form-group">
                     <div class="col-md-3">
-                        @Html.NopLabelFor(model => model.ApiKey)
+                        <nop-label asp-for="ApiKey" />
                     </div>
                     <div class="col-md-9">
-                        @Html.NopEditorFor(model => model.ApiKey)
-                        @Html.ValidationMessageFor(model => model.ApiKey)
+                        <nop-editor asp-for="ApiKey" />
+                        <span asp-validation-for="ApiKey"></span>
                     </div>
                 </div>
                 @if (!string.IsNullOrEmpty(Model.AccountInfo))
                 {
                     <div class="form-group">
                         <div class="col-md-3">
-                            @Html.NopLabelFor(model => model.AccountInfo)
+                            <nop-label asp-for="AccountInfo" />
                         </div>
                         <div class="col-md-9" style="white-space: pre-line">
                             @Html.Raw(Model.AccountInfo)
@@ -56,39 +54,39 @@
                 }
                 <div class="form-group">
                     <div class="col-md-3">
-                        @Html.NopLabelFor(model => model.UseEcommerceApi)
+                        <nop-label asp-for="UseEcommerceApi" />
                     </div>
                     <div class="col-md-9">
-                        @Html.NopEditorFor(model => model.UseEcommerceApi)
-                        @Html.ValidationMessageFor(model => model.UseEcommerceApi)
+                        <nop-editor asp-for="UseEcommerceApi" />
+                        <span asp-validation-for="UseEcommerceApi"></span>
                     </div>
                 </div>
                 <div class="form-group">
                     <div class="col-md-3">
-                        @Html.NopLabelFor(model => model.AutoSync)
+                        <nop-label asp-for="AutoSync" />
                     </div>
                     <div class="col-md-9">
-                        @Html.NopEditorFor(model => model.AutoSync)
-                        @Html.ValidationMessageFor(model => model.AutoSync)
+                        <nop-editor asp-for="AutoSync" />
+                        <span asp-validation-for="AutoSync"></span>
                     </div>
                 </div>
                 <div class="form-group" id="pnlAutoSyncEachMinutes">
                     <div class="col-md-3">
-                        @Html.NopLabelFor(model => model.AutoSyncEachMinutes)
+                        <nop-label asp-for="AutoSyncEachMinutes" />
                     </div>
                     <div class="col-md-9">
-                        @Html.NopEditorFor(model => model.AutoSyncEachMinutes)
-                        @Html.ValidationMessageFor(model => model.AutoSyncEachMinutes)
+                        <nop-editor asp-for="AutoSyncEachMinutes" />
+                        <span asp-validation-for="AutoSyncEachMinutes"></span>
                     </div>
                 </div>
                 <div class="form-group">
                     <div class="col-md-3">
-                        @Html.OverrideStoreCheckboxFor(model => model.ListId_OverrideForStore, model => model.ListId, Model.ActiveStoreScopeConfiguration)
-                        @Html.NopLabelFor(model => model.ListId)
+                        <nop-override-store-checkbox asp-for="ListId_OverrideForStore" asp-input="ListId" asp-store-scope="Model.ActiveStoreScopeConfiguration"/>
+                        <nop-label asp-for="ListId" />
                     </div>
                     <div class="col-md-9">
-                        @Html.NopDropDownListFor(model => model.ListId, Model.AvailableLists)
-                        @Html.ValidationMessageFor(model => model.ListId)
+                        <nop-select asp-for="ListId" asp-items="Model.AvailableLists" />
+                        <span asp-validation-for="ListId"></span>
                     </div>
                 </div>
                 <div class="form-group">
@@ -102,10 +100,10 @@
         @if (!string.IsNullOrEmpty(Model.ApiKey))
         {
             <div class="panel panel-default">
-            
+
                 <script type="text/javascript">
                     $(document).ready(function () {
-                        if (@((Session["synchronization"] != null).ToString().ToLower())) {
+                        if (@(Context.Session.GetString("synchronization")?.ToLower())) {
                             $('#synchronizationInfo').text('@T("Plugins.Misc.MailChimp.SynchronizationStart")');
                             refresh();
                         }
@@ -137,4 +135,4 @@
             </div>
         }
     </div>
-}
+</form>
