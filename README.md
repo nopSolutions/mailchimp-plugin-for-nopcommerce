@@ -1,9 +1,9 @@
 ﻿nopCommerce MailChimp plugin
 ===========
 
-nopCommerce site: [http://www.nopcommerce.com](http://www.nopcommerce.com)
+nopCommerce site: [https://www.nopcommerce.com](https://www.nopcommerce.com)
 
-Listing on nopCommerce "extensions and themes" catalog: [http://www.nopcommerce.com/p/976/mailchimp-synchronization-plugin.aspx](http://www.nopcommerce.com/p/976/mailchimp-synchronization-plugin.aspx)
+Listing on nopCommerce "extensions and themes" catalog: [https://www.nopcommerce.com/p/976/mailchimp-synchronization-plugin.aspx](https://www.nopcommerce.com/p/976/mailchimp-synchronization-plugin.aspx)
 
 MailChimp site: [http://www.mailchimp.com/](http://www.mailchimp.com/)
 
