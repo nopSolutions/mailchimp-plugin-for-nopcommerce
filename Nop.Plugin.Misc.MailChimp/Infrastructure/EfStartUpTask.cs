@@ -1,8 +1,12 @@
 ﻿using System.Data.Entity;
 using Nop.Core.Infrastructure;
+using Nop.Plugin.Misc.MailChimp.Data;
 
-namespace Nop.Plugin.Misc.MailChimp.Data
+namespace Nop.Plugin.Misc.MailChimp.Infrastructure
 {
+    /// <summary>
+    /// Represents a startup task that set database initializer to null
+    /// </summary>
     public class EfStartUpTask : IStartupTask
     {
         /// <summary>
@@ -15,6 +19,9 @@ namespace Nop.Plugin.Misc.MailChimp.Data
             Database.SetInitializer<MailChimpObjectContext>(null);
         }
 
+        /// <summary>
+        /// Gets order of this startup task implementation
+        /// </summary>
         public int Order
         {
             get { return 0; }

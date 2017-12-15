@@ -3,14 +3,17 @@ using Nop.Plugin.Misc.MailChimp.Domain;
 
 namespace Nop.Plugin.Misc.MailChimp.Data
 {
-    public partial class SynchronizationRecordMap : NopEntityTypeConfiguration<MailChimpSynchronizationRecord>
+    /// <summary>
+    /// Represents a mapping class for synchronization record
+    /// </summary>
+    public class SynchronizationRecordMap : NopEntityTypeConfiguration<MailChimpSynchronizationRecord>
     {
         public SynchronizationRecordMap()
         {
-            this.ToTable("MailChimpSynchronizationRecord");
+            this.ToTable(nameof(MailChimpSynchronizationRecord));
             this.HasKey(record => record.Id);
             this.Ignore(record => record.EntityType);
-            this.Ignore(record => record.ActionType);
+            this.Ignore(record => record.OperationType);
             this.Property(record => record.Email).HasMaxLength(255);
         }
     }

@@ -1,12 +1,18 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Net;
+using System.Text;
 using System.Threading.Tasks;
-using mailChimp = MailChimp.Net;
 using MailChimp.Net.Core;
+using MailChimp.Net.Interfaces;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Rendering;
-using model = MailChimp.Net.Models;
+using Microsoft.AspNetCore.Mvc.Routing;
+using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
 using Nop.Core;
 using Nop.Core.Domain.Catalog;
@@ -16,7 +22,9 @@ using Nop.Core.Domain.Directory;
 using Nop.Core.Domain.Messages;
 using Nop.Core.Domain.Orders;
 using Nop.Core.Domain.Stores;
+using Nop.Core.Html;
 using Nop.Plugin.Misc.MailChimp.Domain;
+using Nop.Services.Catalog;
 using Nop.Services.Common;
 using Nop.Services.Configuration;
 using Nop.Services.Customers;
@@ -27,9 +35,10 @@ using Nop.Services.Logging;
 using Nop.Services.Media;
 using Nop.Services.Messages;
 using Nop.Services.Orders;
-using Nop.Services.Catalog;
 using Nop.Services.Seo;
 using Nop.Services.Stores;
+using SharpCompress.Readers;
+using mailchimp = MailChimp.Net.Models;
 
 namespace Nop.Plugin.Misc.MailChimp.Services
 {
@@ -41,6 +50,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         #region Fields
 
         private readonly CurrencySettings _currencySettings;
+        private readonly IActionContextAccessor _actionContextAccessor;
         private readonly ICountryService _countryService;
         private readonly ICurrencyService _currencyService;
         private readonly ICustomerService _customerService;
@@ -56,17 +66,22 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         private readonly IProductService _productService;
         private readonly ISettingService _settingService;
         private readonly IStateProvinceService _stateProvinceService;
-        private readonly IStoreContext _storeContext;
         private readonly IStoreMappingService _storeMappingService;
         private readonly IStoreService _storeService;
         private readonly ISynchronizationRecordService _synchronizationRecordService;
+        private readonly IUrlHelperFactory _urlHelperFactory;
         private readonly IWebHelper _webHelper;
+        private readonly IWorkContext _workContext;
+        private readonly MailChimpSettings _mailChimpSettings;
+
+        private readonly IMailChimpManager _mailChimpManager;
 
         #endregion
 
         #region Ctor
 
         public MailChimpManager(CurrencySettings currencySettings,
+            IActionContextAccessor actionContextAccessor,
             ICountryService countryService,
             ICurrencyService currencyService,
             ICustomerService customerService,
@@ -82,13 +97,16 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             IProductService productService,
             ISettingService settingService,
             IStateProvinceService stateProvinceService,
-            IStoreContext storeContext,
             IStoreMappingService storeMappingService,
             IStoreService storeService,
             ISynchronizationRecordService synchronizationRecordService,
-            IWebHelper webHelper)
+            IUrlHelperFactory urlHelperFactory,
+            IWebHelper webHelper,
+            IWorkContext workContext,
+            MailChimpSettings mailChimpSettings)
         {
             this._currencySettings = currencySettings;
+            this._actionContextAccessor = actionContextAccessor;
             this._countryService = countryService;
             this._currencyService = currencyService;
             this._customerService = customerService;
@@ -105,38 +123,16 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             this._settingService = settingService;
             this._stateProvinceService = stateProvinceService;
             this._storeMappingService = storeMappingService;
-            this._storeContext = storeContext;
             this._storeService = storeService;
             this._synchronizationRecordService = synchronizationRecordService;
+            this._urlHelperFactory = urlHelperFactory;
             this._webHelper = webHelper;
-        }
+            this._workContext = workContext;
+            this._mailChimpSettings = mailChimpSettings;
 
-        #endregion
-
-        #region Properties
-
-        private mailChimp.MailChimpManager _manager;
-        /// <summary>
-        /// Get single MailChimp manager for the requesting service
-        /// </summary>
-        private mailChimp.MailChimpManager Manager
-        {
-            get
-            {
-                if (_manager == null)
-                    _manager = new mailChimp.MailChimpManager(_settingService.LoadSetting<MailChimpSettings>().ApiKey);
-
-
-                return _manager;
-            }
-        }
-
-        /// <summary>
-        /// Check that manager is configured
-        /// </summary>
-        public bool IsConfigured
-        {
-            get { return !string.IsNullOrEmpty(_settingService.LoadSetting<MailChimpSettings>().ApiKey); }
+            //create wrapper MailChimp manager
+            if (!string.IsNullOrEmpty(_mailChimpSettings.ApiKey))
+                _mailChimpManager = new global::MailChimp.Net.MailChimpManager(_mailChimpSettings.ApiKey);
         }
 
         #endregion
@@ -144,316 +140,556 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         #region Utilities
 
         /// <summary>
-        /// Check that batch operation is completed
+        /// Handle request
         /// </summary>
-        /// <param name="batch">Batch</param>
-        /// <returns>True if batch status is finished; otherwise false</returns>
-        protected bool BatchOperationIsComplete(Batch batch)
+        /// <typeparam name="T">Output type</typeparam>
+        /// <param name="request">Request actions</param>
+        /// <returns>The asynchronous task whose result contains the object of T type</returns>
+        private async Task<T> HandleRequest<T>(Func<Task<T>> request)
         {
-            return batch.Status.Equals("finished", StringComparison.InvariantCultureIgnoreCase);
+            try
+            {
+                //ensure that plugin is configured
+                if (_mailChimpManager == null)
+                    throw new NopException("Plugin is not configured");
+
+                return await request();
+            }
+            catch (Exception exception)
+            {
+                //compose an error message
+                var errorMessage = exception.Message;
+                if (exception is MailChimpException mailChimpException)
+                {
+                    errorMessage = $"{mailChimpException.Status} {mailChimpException.Title} - {mailChimpException.Detail}{Environment.NewLine}";
+                    if (mailChimpException.Errors?.Any() ?? false)
+                    {
+                        var errorDetails = mailChimpException.Errors
+                            .Aggregate(string.Empty, (error, detail) => $"{error}{detail?.Field} - {detail?.Message}{Environment.NewLine}");
+                        errorMessage = $"{errorMessage} Errors: {errorDetails}";
+                    }
+                }
+
+                //log errors
+                _logger.Error($"MailChimp error. {errorMessage}", exception, _workContext.CurrentCustomer);
+
+                return default(T);
+            }
+        }
+
+        #region Synchronization
+
+        /// <summary>
+        /// Prepare records for the manual synchronization
+        /// </summary>
+        /// <returns>The asynchronous task whose result determines whether the records prepared</returns>
+        private async Task<bool> PrepareRecordsToManualSynchronization()
+        {
+            return await HandleRequest(async () =>
+            {
+                //get store identifiers
+                var allStoresIds = _storeService.GetAllStores().Select(store => string.Format(_mailChimpSettings.StoreIdMask, store.Id));
+
+                //get number of stores
+                var storeNumber = (await _mailChimpManager.ECommerceStores.GetResponseAsync())?.TotalItems
+                    ?? throw new NopException("No response from the service");
+
+                //delete all existing E-Commerce data from MailChimp
+                var existingStoresIds = await _mailChimpManager.ECommerceStores
+                    .GetAllAsync(new QueryableBaseRequest { FieldsToInclude = "stores.id", Limit = storeNumber })
+                    ?? throw new NopException("No response from the service");
+                foreach (var storeId in existingStoresIds.Select(store => store.Id).Intersect(allStoresIds))
+                {
+                    await _mailChimpManager.ECommerceStores.DeleteAsync(storeId);
+                }
+
+                //clear records
+                _synchronizationRecordService.ClearRecords();
+
+                //and create initial data
+                CreateInitialData();
+
+                return true;
+            });
         }
 
         /// <summary>
-        /// Log synchronization information after batch is complete
+        /// Prepare batch webhook before the synchronization
         /// </summary>
-        /// <param name="batch">Batch</param>
-        protected async void LogAfterComplete(Batch batch)
+        /// <returns>The asynchronous task whose result determines whether the batch webhook prepared</returns>
+        private async Task<bool> PrepareBatchWebhook()
         {
-            do
+            return await HandleRequest(async () =>
             {
-                //check batch status each 10 seconds
-                await Task.Delay(10000);
-                batch = await Manager.Batches.GetBatchStatus(batch.Id);
-            } while (!BatchOperationIsComplete(batch));
+                //get all batch webhooks 
+                var allBatchWebhooks = await _mailChimpManager.BatchWebHooks.GetAllAsync(new QueryableBaseRequest { Limit = int.MaxValue })
+                    ?? throw new NopException("No response from the service");
 
-            //log
-            try
+                //generate webhook URL
+                var webhookUrl = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
+                    .RouteUrl(MailChimpDefaults.BatchWebhookRoute, null, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme);
+
+                //create the new one if not exists
+                var batchWebhook = allBatchWebhooks
+                    .FirstOrDefault(webhook => !string.IsNullOrEmpty(webhook.Url) && webhook.Url.Equals(webhookUrl, StringComparison.InvariantCultureIgnoreCase));
+                if (string.IsNullOrEmpty(batchWebhook?.Id))
+                {
+                    batchWebhook = await _mailChimpManager.BatchWebHooks.AddAsync(webhookUrl)
+                        ?? throw new NopException("No response from the service");
+                }
+
+                return !string.IsNullOrEmpty(batchWebhook.Id);
+            });
+        }
+
+        /// <summary>
+        /// Create operation to manage MailChimp data
+        /// </summary>
+        /// <typeparam name="T">Type of object value</typeparam>
+        /// <param name="objectValue">Object value</param>
+        /// <param name="operationType">Operation type</param>
+        /// <param name="requestPath">Path of API request</param>
+        /// <param name="operationId">Operation ID</param>
+        /// <param name="additionalData">Additional parameters</param>
+        /// <returns>Operation</returns>
+        private Operation CreateOperation<T>(T objectValue, OperationType operationType,
+            string requestPath, string operationId, object additionalData = null)
+        {
+            return new Operation
             {
-                _logger.Information(string.Format(@"MailChimp synchronization: Started at: {0}, Finished operations: {1}, Errored operations: {2},
-                    Total operations: {3}, Completed at: {4}, Batch ID: {5}", batch.SubmittedAt, batch.FinishedOperations, batch.ErroredOperations,
-                    batch.TotalOperations, batch.CompletedAt, batch.Id));
+                Method = GetWebMethod(operationType),
+                OperationId = operationId,
+                Path = requestPath,
+                Body = JsonConvert.SerializeObject(objectValue, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore }),
+                Params = additionalData,
+            };
+        }
+
+        /// <summary>
+        /// Get web request method for the passed operation type
+        /// </summary>
+        /// <param name="operationType">Operation type</param>
+        /// <returns>Method name</returns>
+        private string GetWebMethod(OperationType operationType)
+        {
+            switch (operationType)
+            {
+                case OperationType.Read:
+                    return WebRequestMethods.Http.Get;
+
+                case OperationType.Create:
+                    return WebRequestMethods.Http.Post;
+
+                case OperationType.Update:
+                    return MailChimpDefaults.PatchRequestMethod;
+
+                case OperationType.Delete:
+                    return MailChimpDefaults.DeleteRequestMethod;
+
+                case OperationType.CreateOrUpdate:
+                    return WebRequestMethods.Http.Put;
+
+                default:
+                    return WebRequestMethods.Http.Get;
             }
-            catch (ArgumentException) { }
-            
+        }
+
+        /// <summary>
+        /// Log result of the synchronization
+        /// </summary>
+        /// <param name="batchId">Batch identifier</param>
+        /// <returns>The asynchronous task whose result determines whether the results successfully logged</returns>
+        private async Task<bool> LogSynchronizationResult(string batchId)
+        {
+            return await HandleRequest(async () =>
+            {
+                //try to get finished batch of operations
+                var batch = await _mailChimpManager.Batches.GetBatchStatus(batchId)
+                    ?? throw new NopException("No response from the service");
+
+                var completeStatus = "finished";
+                if (!batch?.Status?.Equals(completeStatus) ?? true)
+                    return false;
+
+                var operationResults = new List<OperationResult>();
+                if (!string.IsNullOrEmpty(batch.ResponseBodyUrl))
+                {
+                    //get additional result info from MailChimp servers
+                    var webResponse = await WebRequest.Create(batch.ResponseBodyUrl).GetResponseAsync();
+                    using (var stream = webResponse.GetResponseStream())
+                    {
+                        //operation results represent a gzipped tar archive of JSON files, so extract it
+                        using (var archiveReader = ReaderFactory.Open(stream))
+                        {
+                            while (archiveReader.MoveToNextEntry())
+                            {
+                                if (!archiveReader.Entry.IsDirectory)
+                                {
+                                    using (var unzippedEntryStream = archiveReader.OpenEntryStream())
+                                    {
+                                        using (var entryReader = new StreamReader(unzippedEntryStream))
+                                        {
+                                            var entryText = entryReader.ReadToEnd();
+                                            operationResults.AddRange(JsonConvert.DeserializeObject<IEnumerable<OperationResult>>(entryText));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                }
+
+                //log info
+                var message = new StringBuilder();
+                message.AppendLine("MailChimp info.");
+                message.AppendLine($"Synchronization started at: {batch.SubmittedAt}");
+                message.AppendLine($"completed at: {batch.CompletedAt}");
+                message.AppendLine($"finished operations: {batch.FinishedOperations}");
+                message.AppendLine($"errored operations: {batch.ErroredOperations}");
+                message.AppendLine($"total operations: {batch.TotalOperations}");
+                message.AppendLine($"batch ID: {batch.Id}");
+
+                //whether there are errors in operation results
+                var operationResultsWithErrors = operationResults
+                    .Where(result => !int.TryParse(result.StatusCode, out int statusCode) || statusCode != (int)HttpStatusCode.OK);
+                if (operationResultsWithErrors.Any())
+                {
+                    message.AppendLine("Synchronization errors:");
+                    foreach (var operationResult in operationResultsWithErrors)
+                    {
+                        var errorInfo = JsonConvert.DeserializeObject<mailchimp.MailChimpApiError>(operationResult.ResponseString, new JsonSerializerSettings
+                        {
+                            Error = (sender, args) => { args.ErrorContext.Handled = true; }
+                        });
+
+                        var errorMessage = $"Operation {operationResult.OperationId}";
+                        if (errorInfo.Errors?.Any() ?? false)
+                        {
+                            var errorDetails = errorInfo.Errors
+                                .Aggregate(string.Empty, (error, detail) => $"{error}{detail?.Field} - {detail?.Message};");
+                            errorMessage = $"{errorMessage} - {errorDetails}";
+                        }
+                        else
+                            errorMessage = $"{errorMessage} - {errorInfo.Detail}";
+
+                        message.AppendLine(errorMessage);
+                    }
+                }
+
+                _logger.Information(message.ToString());
+
+                return true;
+            });
+        }
+
+        #region Subscriptions
+
+        /// <summary>
+        /// Get operations to manage subscriptions
+        /// </summary>
+        /// <returns>List of operations</returns>
+        private IList<Operation> GetSubscriptionsOperations()
+        {
+            var operations = new List<Operation>();
+
+            //prepare operations
+            operations.AddRange(GetCreateOrUpdateSubscriptionsOperations());
+            operations.AddRange(GetDeleteSubscriptionsOperations());
+
+            return operations;
+        }
+
+        /// <summary>
+        /// Get operations to create and update subscriptions
+        /// </summary>
+        /// <returns>List of operations</returns>
+        private IList<Operation> GetCreateOrUpdateSubscriptionsOperations()
+        {
+            var operations = new List<Operation>();
+
+            //get created and updated subscriptions
+            var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Subscription, OperationType.Create).ToList();
+            records.AddRange(_synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Subscription, OperationType.Update));
+            var subscriptions = records.Distinct().Select(record => _newsLetterSubscriptionService.GetNewsLetterSubscriptionById(record.EntityId));
+
+            foreach (var store in _storeService.GetAllStores())
+            {
+                //try to get list ID for the store
+                var listId = _settingService
+                    .GetSettingByKey<string>($"{nameof(MailChimpSettings)}.{nameof(MailChimpSettings.ListId)}", storeId: store.Id, loadSharedValueIfNotFound: true);
+                if (string.IsNullOrEmpty(listId))
+                    continue;
+
+                //filter subscriptions by store
+                var storeSubscriptions = subscriptions.Where(subscription => subscription?.StoreId == store.Id);
+
+                foreach (var subscription in storeSubscriptions)
+                {
+                    var member = CreateMemberBySubscription(subscription);
+                    if (member == null)
+                        continue;
+
+                    //create hash by email
+                    var hash = _mailChimpManager.Members.Hash(subscription.Email);
+
+                    //prepare request path and operation ID
+                    var requestPath = string.Format(MailChimpDefaults.MembersApiPath, listId, hash);
+                    var operationId = $"createOrUpdate-subscription-{subscription.Id}-list-{listId}";
+
+                    //add operation
+                    operations.Add(CreateOperation(member, OperationType.CreateOrUpdate, requestPath, operationId));
+                }
+            }
+
+            return operations;
+        }
+
+        /// <summary>
+        /// Get operations to delete subscriptions
+        /// </summary>
+        /// <returns>List of operations</returns>
+        private IList<Operation> GetDeleteSubscriptionsOperations()
+        {
+            var operations = new List<Operation>();
+
+            //ge records of deleted subscriptions
+            var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Subscription, OperationType.Delete);
+
+            foreach (var store in _storeService.GetAllStores())
+            {
+                //try to get list ID for the store
+                var listId = _settingService
+                    .GetSettingByKey<string>($"{nameof(MailChimpSettings)}.{nameof(MailChimpSettings.ListId)}", storeId: store.Id, loadSharedValueIfNotFound: true);
+                if (string.IsNullOrEmpty(listId))
+                    continue;
+
+                foreach (var record in records)
+                {
+                    //if subscription still exist, don't delete it from MailChimp
+                    var subscription = _newsLetterSubscriptionService.GetNewsLetterSubscriptionByEmailAndStoreId(record.Email, store.Id);
+                    if (subscription != null)
+                        continue;
+
+                    //create hash by email
+                    var hash = _mailChimpManager.Members.Hash(record.Email);
+
+                    //prepare request path and operation ID
+                    var requestPath = string.Format(MailChimpDefaults.MembersApiPath, listId, hash);
+                    var operationId = $"delete-subscription-{record.EntityId}-list-{listId}";
+
+                    //add operation
+                    operations.Add(CreateOperation<mailchimp.Member>(null, OperationType.Delete, requestPath, operationId));
+                }
+            }
+
+            return operations;
+        }
+
+        /// <summary>
+        /// Create MailChimp member object by nopCommerce newsletter subscription object
+        /// </summary>
+        /// <param name="subscription">Newsletter subscription</param>
+        /// <returns>Member</returns>
+        private mailchimp.Member CreateMemberBySubscription(NewsLetterSubscription subscription)
+        {
+            //whether email exists
+            if (string.IsNullOrEmpty(subscription?.Email))
+                return null;
+
+            var member = new mailchimp.Member
+            {
+                EmailAddress = subscription.Email,
+                TimestampSignup = subscription.CreatedOnUtc.ToString("s")
+            };
+
+            //set member status
+            var status = subscription.Active ? mailchimp.Status.Subscribed : mailchimp.Status.Unsubscribed;
+            member.Status = status;
+            member.StatusIfNew = status;
+
+            //if a customer of the subscription isn't a quest, add some specific properties
+            var customer = _customerService.GetCustomerByEmail(subscription.Email);
+            if (!customer?.IsGuest() ?? false)
+            {
+                //try to add language
+                var languageId = customer.GetAttribute<int>(SystemCustomerAttributeNames.LanguageId);
+                if (languageId > 0)
+                    member.Language = _languageService.GetLanguageById(languageId)?.UniqueSeoCode;
+
+                //try to add names
+                var firstName = customer.GetAttribute<string>(SystemCustomerAttributeNames.FirstName);
+                var lastName = customer.GetAttribute<string>(SystemCustomerAttributeNames.LastName);
+                if (!string.IsNullOrEmpty(firstName) || !string.IsNullOrEmpty(lastName))
+                {
+                    member.MergeFields = new Dictionary<string, object>
+                    {
+                        [MailChimpDefaults.FirstNameMergeField] = firstName,
+                        [MailChimpDefaults.LastNameMergeField] = lastName
+                    };
+                }
+            }
+
+            return member;
+        }
+
+        #endregion
+
+        #region E-Commerce data
+
+        /// <summary>
+        /// Get operations to manage E-Commerce data
+        /// </summary>
+        /// <returns>The asynchronous task whose result contains the list of operations</returns>
+        private async Task<IList<Operation>> GetEcommerceApiOperations()
+        {
+            var operations = new List<Operation>();
+
+            //prepare operations
+            operations.AddRange(await GetStoreOperations());
+            operations.AddRange(GetCustomerOperations());
+            operations.AddRange(GetProductOperations());
+            operations.AddRange(GetProductVariantOperations());
+            operations.AddRange(GetOrderOperations());
+            operations.AddRange(await GetCartOperations());
+
+            return operations;
         }
 
         /// <summary>
         /// Get code of the primary store currency
         /// </summary>
         /// <returns>Currency code</returns>
-        protected CurrencyCode GetCurrencyCode()
+        private CurrencyCode GetCurrencyCode()
         {
-            var result = CurrencyCode.USD;
-            var currency = _currencyService.GetCurrencyById(_currencySettings.PrimaryStoreCurrencyId);
-            if (currency == null)
-                return result;
-
-            Enum.TryParse(currency.CurrencyCode, true, out result);
+            var currencyCode = _currencyService.GetCurrencyById(_currencySettings.PrimaryStoreCurrencyId)?.CurrencyCode;
+            if (!Enum.TryParse(currencyCode, true, out CurrencyCode result))
+                result = CurrencyCode.USD;
 
             return result;
-        }
-
-        #region Subscriptions
-
-        /// <summary>
-        /// Get batch of subscription operations
-        /// </summary>
-        /// <param name="mailChimpSettings">mMilChimp settings</param>
-        /// <returns>List of operations</returns>
-        protected IList<Operation> GetSubscriptionOperations(MailChimpSettings mailChimpSettings)
-        {
-            var subscriptionsOperations = new List<Operation>();
-
-            subscriptionsOperations.AddRange(GetNewSubscriptions());
-            subscriptionsOperations.AddRange(GetUpdatedSubscriptions());
-            subscriptionsOperations.AddRange(GetDeletedSubscriptions());
-
-            //delete records
-            _synchronizationRecordService.DeleteRecordsByEntityType(EntityType.Subscription);
-
-            return subscriptionsOperations;
-        }
-
-        /// <summary>
-        /// Get batch of new subscription operations
-        /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetNewSubscriptions()
-        {
-            //get new subscriptions
-            var newSubscriptions = _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.Subscription, ActionType.Create)
-                .Select(record => _newsLetterSubscriptionService.GetNewsLetterSubscriptionById(record.EntityId));
-
-            return _storeService.GetAllStores().SelectMany(store =>
-            {
-                var listId = _settingService.GetSettingByKey<string>("mailchimpsettings.listid", storeId: store.Id, loadSharedValueIfNotFound: true);
-                if (string.IsNullOrEmpty(listId))
-                    return new List<Operation>();
-
-                return newSubscriptions.Where(subscription => subscription.StoreId == store.Id).Select(subscription =>
-                {
-                    //create new subscription
-                    var newMember = new model.Member
-                    {
-                        EmailAddress = subscription.Email,
-                        Status = subscription.Active ? model.Status.Subscribed : model.Status.Unsubscribed,
-                        StatusIfNew = subscription.Active ? model.Status.Subscribed : model.Status.Unsubscribed,
-                        TimestampSignup = subscription.CreatedOnUtc.ToString("s")
-                    };
-
-                    //if customer not quest add some properties
-                    var customer = _customerService.GetCustomerByEmail(subscription.Email);
-                    if (customer != null && !customer.IsGuest())
-                    {
-                        var language = _languageService.GetLanguageById(customer.GetAttribute<int>(SystemCustomerAttributeNames.LanguageId));
-                        newMember.Language = language != null ? language.UniqueSeoCode : string.Empty;
-                        newMember.MergeFields = new Dictionary<string, string>
-                        {
-                            { "FNAME", customer.GetAttribute<string>(SystemCustomerAttributeNames.FirstName) ?? string.Empty },
-                            { "LNAME", customer.GetAttribute<string>(SystemCustomerAttributeNames.LastName) ?? string.Empty }
-                        };
-                    }
-
-                    return new Operation
-                    {
-                        Method = "PUT",
-                        Path = string.Format("/lists/{0}/members/{1}", listId, Manager.Members.Hash(subscription.Email)),
-                        OperationId = string.Format("create_subscription_#{0}_to_list_{1}", subscription.Id, listId),
-                        Body = JsonConvert.SerializeObject(newMember, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                    };
-                });
-            });
-        }
-
-        /// <summary>
-        /// Get batch of updated subscription operations
-        /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetUpdatedSubscriptions()
-        {
-            //get updated subscriptions
-            var updatedSubscriptions = _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.Subscription, ActionType.Update)
-                .Select(record => _newsLetterSubscriptionService.GetNewsLetterSubscriptionById(record.EntityId));
-
-            return _storeService.GetAllStores().SelectMany(store =>
-            {
-                var listId = _settingService.GetSettingByKey<string>("mailchimpsettings.listid", storeId: store.Id, loadSharedValueIfNotFound: true);
-                if (string.IsNullOrEmpty(listId))
-                    return new List<Operation>();
-
-                return updatedSubscriptions.Where(subscription => subscription.StoreId == store.Id).Select(subscription =>
-                {
-                    //create subscription
-                    var newMember = new model.Member
-                    {
-                        EmailAddress = subscription.Email,
-                        Status = subscription.Active ? model.Status.Subscribed : model.Status.Unsubscribed,
-                        StatusIfNew = subscription.Active ? model.Status.Subscribed : model.Status.Unsubscribed,
-                        TimestampSignup = subscription.CreatedOnUtc.ToString("s")
-                    };
-
-                    //if customer not quest add some properties
-                    var customer = _customerService.GetCustomerByEmail(subscription.Email);
-                    if (customer != null && !customer.IsGuest())
-                    {
-                        var language = _languageService.GetLanguageById(customer.GetAttribute<int>(SystemCustomerAttributeNames.LanguageId));
-                        newMember.Language = language != null ? language.UniqueSeoCode : string.Empty;
-                        newMember.MergeFields = new Dictionary<string, string>
-                        {
-                            { "FNAME", customer.GetAttribute<string>(SystemCustomerAttributeNames.FirstName) ?? string.Empty },
-                            { "LNAME", customer.GetAttribute<string>(SystemCustomerAttributeNames.LastName) ?? string.Empty }
-                        };
-                    }
-
-                    return new Operation
-                    {
-                        Method = "PUT",
-                        Path = string.Format("/lists/{0}/members/{1}", listId, Manager.Members.Hash(subscription.Email)),
-                        OperationId = string.Format("update_subscription_#{0}_on_list_{1}", subscription.Id, listId),
-                        Body = JsonConvert.SerializeObject(newMember, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                    };
-                });
-            });
-        }
-
-        /// <summary>
-        /// Get batch of deleted subscription operations
-        /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetDeletedSubscriptions()
-        {
-            //get deleted records
-            var deletedSubscriptions = _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.Subscription, ActionType.Delete);
-
-            return _storeService.GetAllStores().SelectMany(store =>
-            {
-                var listId = _settingService.GetSettingByKey<string>("mailchimpsettings.listid", storeId: store.Id, loadSharedValueIfNotFound: true);
-                if (string.IsNullOrEmpty(listId))
-                    return new List<Operation>();
-
-                //a little workaround here - we check if subscription already not exists for the particular store then remove it from MailChimp
-                return deletedSubscriptions.Where(subscription =>
-                    _newsLetterSubscriptionService.GetNewsLetterSubscriptionByEmailAndStoreId(subscription.Email, store.Id) == null)
-                    .Select(subscription => new Operation
-                    {
-                        Method = "DELETE",
-                        Path = string.Format("/lists/{0}/members/{1}", listId, Manager.Members.Hash(subscription.Email)),
-                        OperationId = string.Format("delete_subscription_from_list_{0}", listId)
-                    });
-            });
-        }
-
-        #endregion
-
-        #region Ecommerce API
-
-        /// <summary>
-        /// Get batch of operations for the MailChimp Ecommerce API
-        /// </summary>
-        /// <param name="mailChimpSettings">MailChimp settings</param>
-        /// <returns>List of operations</returns>
-        protected async Task<IList<Operation>> GetEcommerceApiOperations(MailChimpSettings mailChimpSettings)
-        {
-            var ecommerceApiOperations = new List<Operation>();
-
-            ecommerceApiOperations.AddRange(GetStoreOperations());
-            ecommerceApiOperations.AddRange(GetCustomerOperations());
-            ecommerceApiOperations.AddRange(GetProductOperations());
-            ecommerceApiOperations.AddRange(GetProductVariantOperations());
-            ecommerceApiOperations.AddRange(GetOrderOperations());
-            ecommerceApiOperations.AddRange(await GetCartOperations());
-
-            return ecommerceApiOperations;
         }
 
         #region Stores
 
         /// <summary>
-        /// Get batch of store operations
+        /// Get operations to manage stores
+        /// </summary>
+        /// <returns>The asynchronous task whose result contains the list of operations</returns>
+        private async Task<IList<Operation>> GetStoreOperations()
+        {
+            //first create stores, we don't use batch operations, coz the store is the root object for all E-Commerce data 
+            //and we need to make sure that it is created
+            await CreateStores();
+
+            var operations = new List<Operation>();
+
+            //prepare operations
+            operations.AddRange(GetUpdateStoresOperations());
+            operations.AddRange(GetDeleteStoresOperations());
+
+            return operations;
+        }
+
+        /// <summary>
+        /// Create stores
+        /// </summary>
+        /// <returns>The asynchronous task whose result determines whether stores successfully created</returns>
+        private async Task<bool> CreateStores()
+        {
+            return await HandleRequest(async () =>
+            {
+                //get created stores
+                var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Store, OperationType.Create);
+                var stores = records.Select(record => _storeService.GetStoreById(record.EntityId));
+
+                foreach (var store in stores)
+                {
+                    var storeObject = MapStore(store);
+                    if (storeObject == null)
+                        continue;
+
+                    //create store
+                    await HandleRequest(async () => await _mailChimpManager.ECommerceStores.AddAsync(storeObject));
+                }
+
+                return true;
+            });
+        }
+
+        /// <summary>
+        /// Get operations to update stores
         /// </summary>
         /// <returns>List of operations</returns>
-        protected IList<Operation> GetStoreOperations()
+        private IEnumerable<Operation> GetUpdateStoresOperations()
         {
-            var storeOperations = new List<Operation>();
+            var operations = new List<Operation>();
 
-            storeOperations.AddRange(GetNewStores());
-            storeOperations.AddRange(GetUpdatedStores());
-            storeOperations.AddRange(GetDeletedStores());
+            //get updated stores
+            var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Store, OperationType.Update);
+            var stores = records.Select(record => _storeService.GetStoreById(record.EntityId));
 
-            //delete records
-            _synchronizationRecordService.DeleteRecordsByEntityType(EntityType.Store);
+            foreach (var store in stores)
+            {
+                var storeObject = MapStore(store);
+                if (storeObject == null)
+                    continue;
 
-            return storeOperations;
+                //prepare request path and operation ID
+                var storeId = string.Format(_mailChimpSettings.StoreIdMask, store.Id);
+                var requestPath = string.Format(MailChimpDefaults.StoresApiPath, storeId);
+                var operationId = $"update-store-{store.Id}";
+
+                //add operation
+                operations.Add(CreateOperation(storeObject, OperationType.Update, requestPath, operationId));
+            }
+
+            return operations;
         }
 
         /// <summary>
-        /// Get batch of new store operations
+        /// Get operations to delete stores
         /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetNewStores()
+        /// <returns>List of operations</returns>
+        private IEnumerable<Operation> GetDeleteStoresOperations()
         {
-            var currency = GetCurrencyCode();
+            var operations = new List<Operation>();
 
-            return _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.Store, ActionType.Create)
-                .Select(record => _storeService.GetStoreById(record.EntityId)).Select(store => new Operation
-                {
-                    Method = "POST",
-                    Path = "/ecommerce/stores",
-                    OperationId = string.Format("create_store_{0}", store.Name),
-                    Body = JsonConvert.SerializeObject(new model.Store
-                    {
-                        Id = store.Id.ToString(),
-                        ListId = _settingService.GetSettingByKey<string>("mailchimpsettings.listid", storeId: store.Id, loadSharedValueIfNotFound: true),
-                        Name = store.Name,
-                        Domain = _webHelper.GetStoreLocation(store.SslEnabled),
-                        CurrencyCode = currency,
-                        PrimaryLocale = (_languageService.GetLanguageById(store.DefaultLanguageId) ?? _languageService.GetAllLanguages().First()).UniqueSeoCode,
-                        Phone = store.CompanyPhoneNumber,
-                        Timezone = _dateTimeHelper.DefaultStoreTimeZone != null ? _dateTimeHelper.DefaultStoreTimeZone.StandardName : string.Empty
-                    }, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                });
+            //get records of deleted stores
+            var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Store, OperationType.Delete);
+
+            //add operations
+            operations.AddRange(records.Select(record =>
+            {
+                //prepare request path and operation ID
+                var storeId = string.Format(_mailChimpSettings.StoreIdMask, record.EntityId);
+                var requestPath = string.Format(MailChimpDefaults.StoresApiPath, storeId);
+                var operationId = $"delete-store-{record.EntityId}";
+
+                return CreateOperation<mailchimp.Store>(null, OperationType.Delete, requestPath, operationId);
+            }));
+
+            return operations;
         }
 
         /// <summary>
-        /// Get batch of updated store operations
+        /// Create MailChimp store object by nopCommerce store object
         /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetUpdatedStores()
+        /// <param name="store">Store</param>
+        /// <returns>Store</returns>
+        private mailchimp.Store MapStore(Store store)
         {
-            var currency = GetCurrencyCode();
-
-            return _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.Store, ActionType.Update)
-                .Select(record => _storeService.GetStoreById(record.EntityId)).Select(store => new Operation
-                {
-                    Method = "PATCH",
-                    Path = string.Format("/ecommerce/stores/{0}", store.Id),
-                    OperationId = string.Format("update_store_{0}", store.Name),
-                    Body = JsonConvert.SerializeObject(new model.Store
-                    {
-                        ListId = _settingService.GetSettingByKey<string>("mailchimpsettings.listid", storeId: store.Id, loadSharedValueIfNotFound: true),
-                        Name = store.Name,
-                        Domain = _webHelper.GetStoreLocation(store.SslEnabled),
-                        CurrencyCode = currency,
-                        PrimaryLocale = (_languageService.GetLanguageById(store.DefaultLanguageId) ?? _languageService.GetAllLanguages().First()).UniqueSeoCode,
-                        Phone = store.CompanyPhoneNumber,
-                        Timezone = _dateTimeHelper.DefaultStoreTimeZone != null ? _dateTimeHelper.DefaultStoreTimeZone.StandardName : string.Empty
-                    }, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                });
-        }
-
-        /// <summary>
-        /// Get batch of deleted store operations
-        /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetDeletedStores()
-        {
-            return _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.Store, ActionType.Delete)
-                .Select(record => new Operation
-                {
-                    Method = "DELETE",
-                    Path = string.Format("/ecommerce/stores/{0}", record.EntityId),
-                    OperationId = string.Format("delete_store_#{0}", record.EntityId)
-                });
+            return store == null ? null : new mailchimp.Store
+            {
+                Id = string.Format(_mailChimpSettings.StoreIdMask, store.Id),
+                ListId = _settingService
+                    .GetSettingByKey<string>($"{nameof(MailChimpSettings)}.{nameof(MailChimpSettings.ListId)}", storeId: store.Id, loadSharedValueIfNotFound: true),
+                Name = store.Name,
+                Domain = _webHelper.GetStoreLocation(),
+                CurrencyCode = GetCurrencyCode(),
+                PrimaryLocale = (_languageService.GetLanguageById(store.DefaultLanguageId) ?? _languageService.GetAllLanguages().FirstOrDefault())?.UniqueSeoCode,
+                Phone = store.CompanyPhoneNumber,
+                Timezone = _dateTimeHelper.DefaultStoreTimeZone?.StandardName
+            };
         }
 
         #endregion
@@ -461,130 +697,120 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         #region Customers
 
         /// <summary>
-        /// Get batch of customer operations
+        /// Get operations to manage customers
         /// </summary>
         /// <returns>List of operations</returns>
-        protected IList<Operation> GetCustomerOperations()
+        private IList<Operation> GetCustomerOperations()
         {
-            var customerOperations = new List<Operation>();
+            var operations = new List<Operation>();
 
-            customerOperations.AddRange(GetNewCustomers());
-            customerOperations.AddRange(GetUpdatedCustomers());
-            customerOperations.AddRange(GetDeletedCustomers());
+            //prepare operations
+            operations.AddRange(GetCreateOrUpdateCustomersOperations());
+            operations.AddRange(GetDeleteCustomersOperations());
 
-            //delete records
-            _synchronizationRecordService.DeleteRecordsByEntityType(EntityType.Customer);
-
-            return customerOperations;
+            return operations;
         }
 
         /// <summary>
-        /// Get batch of new customer operations
+        /// Get operations to create and update customers
         /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetNewCustomers()
+        /// <returns>List of operations</returns>
+        private IList<Operation> GetCreateOrUpdateCustomersOperations()
         {
-            //get new customers
-            var newCustomers = _customerService.GetCustomersByIds(_synchronizationRecordService
-                .GetRecordsByEntityTypeAndActionType(EntityType.Customer, ActionType.Create).Select(record => record.EntityId).ToArray());
+            var operations = new List<Operation>();
 
-            return _storeService.GetAllStores().SelectMany(store => newCustomers.Select(customer =>
+            //get created and updated customers
+            var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Customer, OperationType.Create).ToList();
+            records.AddRange(_synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Customer, OperationType.Update));
+            var customers = _customerService.GetCustomersByIds(records.Select(record => record.EntityId).Distinct().ToArray());
+
+            foreach (var store in _storeService.GetAllStores())
             {
-                var customerOrders = _orderService.SearchOrders(storeId: store.Id, customerId: customer.Id);
-                var customerCountry = _countryService.GetCountryById(customer.GetAttribute<int>(SystemCustomerAttributeNames.CountryId));
-                var customerProvince = _stateProvinceService.GetStateProvinceById(customer.GetAttribute<int>(SystemCustomerAttributeNames.StateProvinceId));
-
-                return new Operation
+                //create customers for all stores
+                foreach (var customer in customers)
                 {
-                    Method = "PUT",
-                    Path = string.Format("/ecommerce/stores/{0}/customers/{1}", store.Id, customer.Id),
-                    OperationId = string.Format("create_customer_#{0}_to_store_{1}", customer.Id, store.Name),
-                    Body = JsonConvert.SerializeObject(new model.Customer
-                    {
-                        Id = customer.Id.ToString(),
-                        EmailAddress = customer.Email,
-                        OptInStatus = false,
-                        OrdersCount = customerOrders.TotalCount,
-                        TotalSpent = (double)customerOrders.Sum(order => order.OrderTotal),
-                        FirstName = customer.GetAttribute<string>(SystemCustomerAttributeNames.FirstName),
-                        LastName = customer.GetAttribute<string>(SystemCustomerAttributeNames.LastName),
-                        Company = customer.GetAttribute<string>(SystemCustomerAttributeNames.Company),
-                        Address = new model.Address
-                        {
-                            Address1 = customer.GetAttribute<string>(SystemCustomerAttributeNames.StreetAddress) ?? string.Empty,
-                            Address2 = customer.GetAttribute<string>(SystemCustomerAttributeNames.StreetAddress2) ?? string.Empty,
-                            City = customer.GetAttribute<string>(SystemCustomerAttributeNames.City) ?? string.Empty,
-                            Province = customerProvince != null ? customerProvince.Name : string.Empty,
-                            ProvinceCode = customerProvince != null ? customerProvince.Abbreviation : string.Empty,
-                            Country = customerCountry != null ? customerCountry.Name : string.Empty,
-                            CountryCode = customerCountry != null ? customerCountry.TwoLetterIsoCode : string.Empty,
-                            PostalCode = customer.GetAttribute<string>(SystemCustomerAttributeNames.ZipPostalCode) ?? string.Empty
-                        }
-                    }, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                };
-            }));
+                    var customerObject = MapCustomer(customer, store.Id);
+                    if (customerObject == null)
+                        continue;
+
+                    //prepare request path and operation ID
+                    var storeId = string.Format(_mailChimpSettings.StoreIdMask, store.Id);
+                    var requestPath = string.Format(MailChimpDefaults.CustomersApiPath, storeId, customer.Id);
+                    var operationId = $"createOrUpdate-customer-{customer.Id}-store-{store.Id}";
+
+                    //add operation
+                    operations.Add(CreateOperation(customerObject, OperationType.CreateOrUpdate, requestPath, operationId));
+                }
+            }
+
+            return operations;
         }
 
         /// <summary>
-        /// Get batch of updated customer operations
+        /// Get operations to delete customers
         /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetUpdatedCustomers()
+        /// <returns>List of operations</returns>
+        private IList<Operation> GetDeleteCustomersOperations()
         {
-            //get updated customers
-            var updatedCustomers = _customerService.GetCustomersByIds(_synchronizationRecordService
-                .GetRecordsByEntityTypeAndActionType(EntityType.Customer, ActionType.Update).Select(record => record.EntityId).ToArray());
+            var operations = new List<Operation>();
 
-            return _storeService.GetAllStores().SelectMany(store => updatedCustomers.Select(customer =>
+            //get records of deleted customers
+            var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Customer, OperationType.Delete);
+
+            //add operations
+            operations.AddRange(_storeService.GetAllStores().SelectMany(store => records.Select(record =>
             {
-                var customerOrders = _orderService.SearchOrders(storeId: store.Id, customerId: customer.Id);
-                var customerCountry = _countryService.GetCountryById(customer.GetAttribute<int>(SystemCustomerAttributeNames.CountryId));
-                var customerProvince = _stateProvinceService.GetStateProvinceById(customer.GetAttribute<int>(SystemCustomerAttributeNames.StateProvinceId));
+                //prepare request path and operation ID
+                var storeId = string.Format(_mailChimpSettings.StoreIdMask, store.Id);
+                var requestPath = string.Format(MailChimpDefaults.CustomersApiPath, storeId, record.EntityId);
+                var operationId = $"delete-customer-{record.EntityId}-store-{store.Id}";
 
-                return new Operation
-                {
-                    Method = "PUT",
-                    Path = string.Format("/ecommerce/stores/{0}/customers/{1}", store.Id, customer.Id),
-                    OperationId = string.Format("update_customer_#{0}_on_store_{1}", customer.Id, store.Name),
-                    Body = JsonConvert.SerializeObject(new model.Customer
-                    {
-                        Id = customer.Id.ToString(),
-                        EmailAddress = customer.Email,
-                        OptInStatus = false,
-                        OrdersCount = customerOrders.TotalCount,
-                        TotalSpent = (double)customerOrders.Sum(order => order.OrderTotal),
-                        FirstName = customer.GetAttribute<string>(SystemCustomerAttributeNames.FirstName),
-                        LastName = customer.GetAttribute<string>(SystemCustomerAttributeNames.LastName),
-                        Company = customer.GetAttribute<string>(SystemCustomerAttributeNames.Company),
-                        Address = new model.Address
-                        {
-                            Address1 = customer.GetAttribute<string>(SystemCustomerAttributeNames.StreetAddress) ?? string.Empty,
-                            Address2 = customer.GetAttribute<string>(SystemCustomerAttributeNames.StreetAddress2) ?? string.Empty,
-                            City = customer.GetAttribute<string>(SystemCustomerAttributeNames.City) ?? string.Empty,
-                            Province = customerProvince != null ? customerProvince.Name : string.Empty,
-                            ProvinceCode = customerProvince != null ? customerProvince.Abbreviation : string.Empty,
-                            Country = customerCountry != null ? customerCountry.Name : string.Empty,
-                            CountryCode = customerCountry != null ? customerCountry.TwoLetterIsoCode : string.Empty,
-                            PostalCode = customer.GetAttribute<string>(SystemCustomerAttributeNames.ZipPostalCode) ?? string.Empty
-                        }
-                    }, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                };
-            }));
+                return CreateOperation<mailchimp.Customer>(null, OperationType.Delete, requestPath, operationId);
+            })));
+
+            return operations;
         }
 
         /// <summary>
-        /// Get batch of deleted customer operations
+        /// Create MailChimp customer object by nopCommerce customer object
         /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetDeletedCustomers()
+        /// <param name="customer">Customer</param>
+        /// <param name="storeId">Store identifier</param>
+        /// <returns>Customer</returns>
+        private mailchimp.Customer MapCustomer(Customer customer, int storeId)
         {
-            return _storeService.GetAllStores().SelectMany(store =>
-                _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.Customer, ActionType.Delete).Select(record => new Operation
+            if (customer == null)
+                return null;
+
+            //get all customer orders
+            var customerOrders = _orderService.SearchOrders(storeId: storeId, customerId: customer.Id).ToList();
+
+            //get customer country and region
+            var customerCountry = _countryService.GetCountryById(customer.GetAttribute<int>(SystemCustomerAttributeNames.CountryId));
+            var customerProvince = _stateProvinceService.GetStateProvinceById(customer.GetAttribute<int>(SystemCustomerAttributeNames.StateProvinceId));
+
+            return new mailchimp.Customer
+            {
+                Id = customer.Id.ToString(),
+                EmailAddress = customer.Email,
+                OptInStatus = false,
+                OrdersCount = customerOrders.Count,
+                TotalSpent = (double)customerOrders.Sum(order => order.OrderTotal),
+                FirstName = customer.GetAttribute<string>(SystemCustomerAttributeNames.FirstName),
+                LastName = customer.GetAttribute<string>(SystemCustomerAttributeNames.LastName),
+                Company = customer.GetAttribute<string>(SystemCustomerAttributeNames.Company),
+                Address = new mailchimp.Address
                 {
-                    Method = "DELETE",
-                    Path = string.Format("/ecommerce/stores/{0}/customers/{1}", store.Id, record.EntityId),
-                    OperationId = string.Format("delete_customer_#{0}_from_store_{1}", record.EntityId, store.Name)
-                }));
+                    Address1 = customer.GetAttribute<string>(SystemCustomerAttributeNames.StreetAddress),
+                    Address2 = customer.GetAttribute<string>(SystemCustomerAttributeNames.StreetAddress2),
+                    City = customer.GetAttribute<string>(SystemCustomerAttributeNames.City),
+                    Province = customerProvince?.Name,
+                    ProvinceCode = customerProvince?.Abbreviation,
+                    Country = customerCountry?.Name,
+                    CountryCode = customerCountry?.TwoLetterIsoCode,
+                    PostalCode = customer.GetAttribute<string>(SystemCustomerAttributeNames.ZipPostalCode)
+                }
+            };
         }
 
         #endregion
@@ -592,644 +818,472 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         #region Products
 
         /// <summary>
-        /// Get batch of product operations
+        /// Get operations to manage products
         /// </summary>
         /// <returns>List of operations</returns>
-        protected IList<Operation> GetProductOperations()
+        private IList<Operation> GetProductOperations()
         {
-            var productOperations = new List<Operation>();
+            var operations = new List<Operation>();
 
-            productOperations.AddRange(GetNewProducts());
-            productOperations.AddRange(GetUpdatedProducts());
-            productOperations.AddRange(GetDeletedProducts());
+            //prepare operations
+            operations.AddRange(GetCreateProductsOperations());
+            operations.AddRange(GetUpdateProductsOperations());
+            operations.AddRange(GetDeleteProductsOperations());
 
-            //delete records
-            _synchronizationRecordService.DeleteRecordsByEntityType(EntityType.Product);
-
-            return productOperations;
+            return operations;
         }
 
         /// <summary>
-        /// Get batch of new product operations
+        /// Get operations to create products
         /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetNewProducts()
+        /// <returns>List of operations</returns>
+        private IList<Operation> GetCreateProductsOperations()
         {
-            //get new products
-            var newProducts = _productService.GetProductsByIds(_synchronizationRecordService
-                .GetRecordsByEntityTypeAndActionType(EntityType.Product, ActionType.Create).Select(record => record.EntityId).ToArray());
+            var operations = new List<Operation>();
 
-            return _storeService.GetAllStores().SelectMany(store => newProducts.Where(product => _storeMappingService.Authorize(product, store.Id)).Select(product =>
+            //get created products
+            var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Product, OperationType.Create);
+            var products = _productService.GetProductsByIds(records.Select(record => record.EntityId).ToArray());
+
+            foreach (var store in _storeService.GetAllStores())
             {
-                var productCategory = product.ProductCategories.FirstOrDefault();
-                var productManufacturer = product.ProductManufacturers.FirstOrDefault();
+                //filter products by the store
+                var storeProducts = products.Where(product => _storeMappingService.Authorize(product, store.Id));
 
-                return new Operation
+                foreach (var product in storeProducts)
                 {
-                    Method = "POST",
-                    Path = string.Format("/ecommerce/stores/{0}/products", store.Id),
-                    OperationId = string.Format("create_product_#{0}_to_store_{1}", product.Id, store.Name),
-                    Body = JsonConvert.SerializeObject(new model.Product
-                    {
-                        Id = product.Id.ToString(),
-                        Title = product.Name,
-                        Url = GetProductUrl(store, product),
-                        Description = Core.Html.HtmlHelper.StripTags(GetProductDescription(product)),
-                        Type = productCategory != null && productCategory.Category != null ? productCategory.Category.Name : string.Empty,
-                        Vendor = productManufacturer != null && productManufacturer.Manufacturer != null ? productManufacturer.Manufacturer.Name : string.Empty,
-                        ImageUrl = GetImageUrl(store, product),
-                        PublishedAtForeign = product.CreatedOnUtc.ToString("s"),
-                        Variants = CreateProductVariants(store, product)
-                    }, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                };
-            }));
+                    var productObject = MapProduct(product);
+                    if (productObject == null)
+                        continue;
+
+                    //prepare request path and operation ID
+                    var storeId = string.Format(_mailChimpSettings.StoreIdMask, store.Id);
+                    var requestPath = string.Format(MailChimpDefaults.ProductsApiPath, storeId, string.Empty);
+                    var operationId = $"create-product-{product.Id}-store-{store.Id}";
+
+                    //add operation
+                    operations.Add(CreateOperation(productObject, OperationType.Create, requestPath, operationId));
+                }
+            }
+
+            return operations;
         }
 
         /// <summary>
-        /// Get batch of updated product operations
+        /// Get operations to update products
         /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetUpdatedProducts()
+        /// <returns>List of operations</returns>
+        private IList<Operation> GetUpdateProductsOperations()
         {
+            var operations = new List<Operation>();
+
             //get updated products
-            var updatedProducts = _productService.GetProductsByIds(_synchronizationRecordService
-                .GetRecordsByEntityTypeAndActionType(EntityType.Product, ActionType.Update).Select(record => record.EntityId).ToArray());
+            var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Product, OperationType.Update);
+            var products = _productService.GetProductsByIds(records.Select(record => record.EntityId).ToArray());
 
-            return _storeService.GetAllStores().SelectMany(store => updatedProducts.Where(product => _storeMappingService.Authorize(product, store.Id))
-                .SelectMany(product =>
+            foreach (var store in _storeService.GetAllStores())
+            {
+                //filter products by the store
+                var storeProducts = products.Where(product => _storeMappingService.Authorize(product, store.Id));
+
+                foreach (var product in storeProducts)
                 {
-                    var productCategory = product.ProductCategories.FirstOrDefault();
-                    var productManufacturer = product.ProductManufacturers.FirstOrDefault();
+                    var productObject = MapProduct(product);
+                    if (productObject == null)
+                        continue;
 
-                    //update product properties
-                    var updatedProduct = new Operation
-                    {
-                        Method = "PATCH",
-                        Path = string.Format("/ecommerce/stores/{0}/products/{1}", store.Id, product.Id),
-                        OperationId = string.Format("update_product_#{0}_on_store_{1}", product.Id, store.Name),
-                        Body = JsonConvert.SerializeObject(new model.Product
-                        {
-                            Title = product.Name,
-                            Url = GetProductUrl(store, product),
-                            Description = Core.Html.HtmlHelper.StripTags(GetProductDescription(product)),
-                            Type = productCategory != null && productCategory.Category != null ? productCategory.Category.Name : string.Empty,
-                            Vendor = productManufacturer != null && productManufacturer.Manufacturer != null ? productManufacturer.Manufacturer.Name : string.Empty,
-                            ImageUrl = GetImageUrl(store, product),
-                        }, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                    };
+                    //prepare request path and operation ID
+                    var storeId = string.Format(_mailChimpSettings.StoreIdMask, store.Id);
+                    var requestPath = string.Format(MailChimpDefaults.ProductsApiPath, storeId, product.Id);
+                    var operationId = $"update-product-{product.Id}-store-{store.Id}";
 
-                    //update default product variant
-                    var updatedProductVariant = new Operation
-                    {
-                        Method = "PUT",
-                        Path = string.Format("/ecommerce/stores/{0}/products/{1}/variants/{2}", store.Id, product.Id, product.Id),
-                        OperationId = string.Format("update_product_variant_#{0}_on_store_{1}", product.Id, store.Name),
-                        Body = JsonConvert.SerializeObject(CreateDefaultProductVariant(store, product),
-                            new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                    };
+                    //add operation
+                    operations.Add(CreateOperation(productObject, OperationType.Update, requestPath, operationId));
 
-                    return new[] { updatedProduct, updatedProductVariant };
-                }));
+                    //add operation to update default product variant
+                    var productVariant = CreateDefaultProductVariantByProduct(product);
+                    if (productVariant == null)
+                        continue;
+
+                    var requestPathVariant = string.Format(MailChimpDefaults.ProductVariantsApiPath, storeId, product.Id, Guid.Empty.ToString());
+                    var operationIdVariant = $"update-productVariant-{Guid.Empty.ToString()}-product-{product.Id}-store-{store.Id}";
+                    operations.Add(CreateOperation(productVariant, OperationType.Update, requestPathVariant, operationIdVariant));
+                }
+            }
+
+            return operations;
         }
 
         /// <summary>
-        /// Get batch of deleted product operations
+        /// Get operations to delete products
         /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetDeletedProducts()
+        /// <returns>List of operations</returns>
+        private IList<Operation> GetDeleteProductsOperations()
         {
-            return _storeService.GetAllStores().SelectMany(store =>
-                _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.Product, ActionType.Delete).Select(record => new Operation
-                {
-                    Method = "DELETE",
-                    Path = string.Format("/ecommerce/stores/{0}/products/{1}", store.Id, record.EntityId),
-                    OperationId = string.Format("delete_product_#{0}_from_store_{1}", record.EntityId, store.Name)
-                }));
+            var operations = new List<Operation>();
+
+            //get records of deleted products
+            var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Product, OperationType.Delete);
+
+            //add operations
+            operations.AddRange(_storeService.GetAllStores().SelectMany(store => records.Select(record =>
+            {
+                //prepare request path and operation ID
+                var storeId = string.Format(_mailChimpSettings.StoreIdMask, store.Id);
+                var requestPath = string.Format(MailChimpDefaults.ProductsApiPath, storeId, record.EntityId);
+                var operationId = $"delete-product-{record.EntityId}-store-{store.Id}";
+
+                return CreateOperation<mailchimp.Product>(null, OperationType.Delete, requestPath, operationId);
+            })));
+
+            return operations;
         }
 
         /// <summary>
-        /// Create product variants for the product
+        /// Create MailChimp product object by nopCommerce product object
         /// </summary>
-        /// <param name="store">Store</param>
+        /// <param name="product">Product</param>
+        /// <returns>Product</returns>
+        private mailchimp.Product MapProduct(Product product)
+        {
+            return product == null ? null : new mailchimp.Product
+            {
+                Id = product.Id.ToString(),
+                Title = product.Name,
+                Url = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
+                    .RouteUrl(nameof(Product), new { SeName = product.GetSeName() }, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme),
+                Description = HtmlHelper.StripTags(!string.IsNullOrEmpty(product.FullDescription) ? product.FullDescription :
+                    !string.IsNullOrEmpty(product.ShortDescription) ? product.ShortDescription : product.Name),
+                Type = product.ProductCategories.FirstOrDefault()?.Category?.Name,
+                Vendor = product.ProductManufacturers.FirstOrDefault()?.Manufacturer?.Name,
+                ImageUrl = _pictureService.GetPictureUrl(product.GetProductPicture(null, _pictureService, _productAttributeParser)),
+                Variants = CreateProductVariantsByProduct(product)
+            };
+        }
+
+        /// <summary>
+        /// Create MailChimp product variant objects by nopCommerce product object
+        /// </summary>
         /// <param name="product">Product</param>
         /// <returns>List of product variants</returns>
-        protected IList<model.Variant> CreateProductVariants(Store store, Product product)
+        private IList<mailchimp.Variant> CreateProductVariantsByProduct(Product product)
         {
+            var variants = new List<mailchimp.Variant>();
+
             //add default variant
-            var variants = new List<model.Variant> { CreateDefaultProductVariant(store, product) };
-
-            //add variants from attributes
-            variants.AddRange(CreateProductVariantsFromAttributes(store, product.ProductAttributeMappings.Where(attribute => !attribute.ShouldHaveValues())));
-
-            //add variants from attribute values
-            variants.AddRange(CreateProductVariantsFromValues(store, product.ProductAttributeMappings.Where(attribute => attribute.ShouldHaveValues()
-                && attribute.ProductAttributeValues.Any()).SelectMany(attribute => attribute.ProductAttributeValues)));
+            variants.Add(CreateDefaultProductVariantByProduct(product));
 
             //add variants from attribute combinations
-            variants.AddRange(CreateProductVariantsFromCombinations(store, product.ProductAttributeCombinations));
+            var combinationVariants = product.ProductAttributeCombinations
+                .Where(combination => combination?.Product != null)
+                .Select(combination => CreateProductVariantByAttributeCombination(combination));
+            variants.AddRange(combinationVariants);
 
             return variants;
         }
 
         /// <summary>
-        /// Create default variant for the product (each product must have at least one variant)
+        /// Create MailChimp product variant object by nopCommerce product object
         /// </summary>
-        /// <param name="store">Store</param>
         /// <param name="product">Product</param>
-        /// <returns>Default product variant</returns>
-        protected model.Variant CreateDefaultProductVariant(Store store, Product product)
-        {
-            var price =  (double)product.Price;
-            var quantity = product.ManageInventoryMethod != ManageInventoryMethod.DontManageStock ? product.StockQuantity : int.MaxValue;
-            var imageUrl = GetImageUrl(store, product);
-            var url = GetProductUrl(store, product);
-
-            //default product variant (copy of product properties)
-            return CreateProductVariant(product.Id.ToString(), product.Name, url, product.Sku, price, quantity, imageUrl, product.Published);
-        }
-
-        /// <summary>
-        /// Create product variants from product attributes that should not have values
-        /// </summary>
-        /// <param name="store">Store</param>
-        /// <param name="attributes">Collection of product attributes</param>
-        /// <returns>Collection of product variants</returns>
-        protected IEnumerable<model.Variant> CreateProductVariantsFromAttributes(Store store, IEnumerable<ProductAttributeMapping> attributes)
-        {
-            return attributes.Where(attribute => !attribute.ShouldHaveValues() && attribute.ProductAttribute != null && attribute.Product != null)
-                .Select(attribute =>
-                {
-                    var imageUrl = GetImageUrl(store, attribute.Product);
-                    var url = GetProductUrl(store, attribute.Product);
-                    var title = attribute.ProductAttribute != null
-                        ? string.Format("{0} {1}", attribute.Product.Name, attribute.ProductAttribute.Name) : attribute.Product.Name;
-                    var price = (double)attribute.Product.Price;
-                    var quantity = attribute.Product.ManageInventoryMethod != ManageInventoryMethod.DontManageStock ? attribute.Product.StockQuantity : int.MaxValue;
-
-                    return CreateProductVariant(string.Format("{0}_a_{1}", attribute.ProductId, attribute.Id), title, url, attribute.Product.Sku, price,
-                        quantity, imageUrl, attribute.Product.Published);
-                });
-        }
-
-        /// <summary>
-        /// Create product variants from product attribute values (each value as the distinct variant)
-        /// </summary>
-        /// <param name="store">Store</param>
-        /// <param name="values">Collection of product attribute values</param>
-        /// <returns>Collection of product variants</returns>
-        protected IEnumerable<model.Variant> CreateProductVariantsFromValues(Store store, IEnumerable<ProductAttributeValue> values)
-        {
-            return values.Where(value => value.ProductAttributeMapping != null && value.ProductAttributeMapping.ProductAttribute != null
-                && value.ProductAttributeMapping.Product != null).Select(value =>
-                {
-                    var url = GetProductUrl(store, value.ProductAttributeMapping.Product);
-                    var valueQuantity = value.AttributeValueType == AttributeValueType.AssociatedToProduct ? value.Quantity
-                        : value.ProductAttributeMapping.Product.ManageInventoryMethod != ManageInventoryMethod.DontManageStock
-                        ? value.ProductAttributeMapping.Product.StockQuantity : int.MaxValue;
-                    var title = string.Format("{0} {1}", value.ProductAttributeMapping.Product.Name, value.Name);
-                    var valuePrice = (double)(value.ProductAttributeMapping.Product.Price
-                        + _priceCalculationService.GetProductAttributeValuePriceAdjustment(value));
-                    var valueImageUrl = value.ImageSquaresPictureId > 0
-                        ? _pictureService.GetPictureUrl(_pictureService.GetPictureById(value.ImageSquaresPictureId))
-                        : GetImageUrl(store, value.ProductAttributeMapping.Product);
-
-                    return CreateProductVariant(string.Format("{0}_v_{1}", value.ProductAttributeMapping.ProductId, value.Id), title, url,
-                        value.ProductAttributeMapping.Product.Sku, valuePrice, valueQuantity, valueImageUrl, value.ProductAttributeMapping.Product.Published);
-                });
-        }
-
-        /// <summary>
-        /// Create product variants from product attribute combinations
-        /// </summary>
-        /// <param name="store">Store</param>
-        /// <param name="combinations">Collection of product attribute combinations</param>
-        /// <returns>Collection of product variants</returns>
-        protected IEnumerable<model.Variant> CreateProductVariantsFromCombinations(Store store, IEnumerable<ProductAttributeCombination> combinations)
-        {
-            return combinations.Where(combination => combination.Product != null).Select(combination =>
-            {
-                var imageUrl = GetImageUrl(store, combination.Product);
-                var url = GetProductUrl(store, combination.Product);
-                var combinationQuantity = combination.Product.ManageInventoryMethod == ManageInventoryMethod.ManageStockByAttributes ? combination.StockQuantity
-                    : combination.Product.ManageInventoryMethod != ManageInventoryMethod.DontManageStock ? combination.Product.StockQuantity : int.MaxValue;
-                var sku = !string.IsNullOrEmpty(combination.Sku) ? combination.Sku : combination.Product.Sku;
-                var combinationPrice = (double)(combination.OverriddenPrice ?? combination.Product.Price);
-
-                return CreateProductVariant(string.Format("{0}_c_{1}", combination.ProductId, combination.Id), combination.Product.Name, url, sku,
-                    combinationPrice, combinationQuantity, imageUrl, combination.Product.Published);
-            });
-        }
-
-        /// <summary>
-        /// Create product variant for MailChimp Ecommerce API
-        /// </summary>
-        /// <param name="id">Identifier</param>
-        /// <param name="title">Title</param>
-        /// <param name="url">URL</param>
-        /// <param name="sku">SKU</param>
-        /// <param name="price">Price</param>
-        /// <param name="quantity">Quantity</param>
-        /// <param name="imageUrl">URL of the image</param>
-        /// <param name="published">Value indicating whether product is published</param>
         /// <returns>Product variant</returns>
-        protected model.Variant CreateProductVariant(string id, string title, string url, string sku, double price, int quantity, string imageUrl, bool published)
+        private mailchimp.Variant CreateDefaultProductVariantByProduct(Product product)
         {
-            return new model.Variant
+            return product == null ? null : new mailchimp.Variant
             {
-                Id = id,
-                Title = title,
-                Url = url,
-                Sku = sku,
-                Price = price,
-                InventoryQuantity = quantity,
-                ImageUrl = imageUrl,
-                Visibility = published.ToString().ToLowerInvariant()
+                Id = Guid.Empty.ToString(), //set empty guid as identifier for default product variant
+                Title = product.Name,
+                Url = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
+                    .RouteUrl(nameof(Product), new { SeName = product.GetSeName() }, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme),
+                Sku = product.Sku,
+                Price = (double)product.Price,
+                ImageUrl = _pictureService.GetPictureUrl(product.GetProductPicture(null, _pictureService, _productAttributeParser)),
+                InventoryQuantity = product.ManageInventoryMethod != ManageInventoryMethod.DontManageStock ? product.StockQuantity : int.MaxValue,
+                Visibility = product.Published.ToString().ToLower()
             };
         }
 
         /// <summary>
-        /// Get description of the product
+        /// Create MailChimp product variant object by nopCommerce product attribute combination object
         /// </summary>
-        /// <param name="product">Product</param>
-        /// <returns>Product description</returns>
-        protected string GetProductDescription(Product product)
+        /// <param name="combination">Product attribute combination</param>
+        /// <returns>Product variant</returns>
+        private mailchimp.Variant CreateProductVariantByAttributeCombination(ProductAttributeCombination combination)
         {
-            return !string.IsNullOrEmpty(product.FullDescription) ? product.FullDescription
-                : !string.IsNullOrEmpty(product.ShortDescription) ? product.ShortDescription : product.Name;
+            return combination?.Product == null ? null : new mailchimp.Variant
+            {
+                Id = combination.Id.ToString(),
+                Title = combination.Product.Name,
+                Url = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
+                    .RouteUrl(nameof(Product), new { SeName = combination.Product.GetSeName() }, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme),
+                Sku = !string.IsNullOrEmpty(combination.Sku) ? combination.Sku : combination.Product.Sku,
+                Price = (double)(combination.OverriddenPrice ?? combination.Product.Price),
+                InventoryQuantity = combination.Product.ManageInventoryMethod == ManageInventoryMethod.ManageStockByAttributes
+                    ? combination.StockQuantity : combination.Product.ManageInventoryMethod != ManageInventoryMethod.DontManageStock
+                    ? combination.Product.StockQuantity : int.MaxValue,
+                ImageUrl = _pictureService
+                    .GetPictureUrl(combination.Product.GetProductPicture(combination.AttributesXml, _pictureService, _productAttributeParser)),
+                Visibility = combination.Product.Published.ToString().ToLowerInvariant()
+            };
         }
 
         /// <summary>
-        /// Get URL of the product
-        /// </summary>
-        /// <param name="store">Store</param>
-        /// <param name="product">Product</param>
-        /// <returns>URL</returns>
-        protected string GetProductUrl(Store store, Product product)
-        {
-            return string.Format("{0}{1}", _webHelper.GetStoreLocation(store.SslEnabled), product.GetSeName());
-        }
-
-        /// <summary>
-        /// Get URL of the image
-        /// </summary>
-        /// <param name="store">Store</param>
-        /// <param name="product">Product</param>
-        /// <returns>Image URL</returns>
-        protected string GetImageUrl(Store store, Product product)
-        {
-            var productPicture = product.ProductPictures.FirstOrDefault();
-            return productPicture != null && productPicture.Picture != null
-                ? _pictureService.GetPictureUrl(productPicture.Picture, storeLocation: store.Url)
-                : _pictureService.GetDefaultPictureUrl(storeLocation: store.Url);
-        }
-
-        #region Product variants
-
-        /// <summary>
-        /// Get batch of product variant operations
+        /// Get operations to manage product variants
         /// </summary>
         /// <returns>List of operations</returns>
-        protected IList<Operation> GetProductVariantOperations()
+        private IList<Operation> GetProductVariantOperations()
         {
-            var productVariantOperations = new List<Operation>();
+            var operations = new List<Operation>();
 
-            productVariantOperations.AddRange(GetNewProductVariants());
-            productVariantOperations.AddRange(GetUpdatedProductVariants());
-            productVariantOperations.AddRange(GetDeletedProductVariants());
+            //prepare operations
+            operations.AddRange(GetCreateOrUpdateProductVariantsOperations());
+            operations.AddRange(GetDeleteProductVariantsOperations());
 
-            //delete records
-            _synchronizationRecordService.DeleteRecordsByEntityType(EntityType.ProductAttribute);
-            _synchronizationRecordService.DeleteRecordsByEntityType(EntityType.AttributeValue);
-            _synchronizationRecordService.DeleteRecordsByEntityType(EntityType.AttributeCombination);
-
-            return productVariantOperations;
+            return operations;
         }
 
         /// <summary>
-        /// Get batch of new product variant operations
+        /// Get operations to create and update product variants
         /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetNewProductVariants()
+        /// <returns>List of operations</returns>
+        private IList<Operation> GetCreateOrUpdateProductVariantsOperations()
         {
-            //new attributes
-            var newAttributes = _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.ProductAttribute, ActionType.Create)
-                .Select(record => _productAttributeService.GetProductAttributeMappingById(record.EntityId));
+            var operations = new List<Operation>();
 
-            //new attribute values
-            var newValues = _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.AttributeValue, ActionType.Create)
-                .Select(record => _productAttributeService.GetProductAttributeValueById(record.EntityId));
+            //get created and updated product combinations
+            var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.AttributeCombination, OperationType.Create).ToList();
+            records.AddRange(_synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.AttributeCombination, OperationType.Update));
+            var combinations = records.Distinct().Select(record => _productAttributeService.GetProductAttributeCombinationById(record.EntityId));
 
-            //new attribute combinations
-            var newCombinations = _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.AttributeCombination, ActionType.Create)
-                .Select(record => _productAttributeService.GetProductAttributeCombinationById(record.EntityId));
-
-            return _storeService.GetAllStores().SelectMany(store =>
+            foreach (var store in _storeService.GetAllStores())
             {
-                var variants = new List<model.Variant>();
-                variants.AddRange(CreateProductVariantsFromAttributes(store,
-                    newAttributes.Where(attribute => _storeMappingService.Authorize(attribute.Product, store.Id))));
-                variants.AddRange(CreateProductVariantsFromValues(store,
-                    newValues.Where(value => value.ProductAttributeMapping != null
-                    && _storeMappingService.Authorize(value.ProductAttributeMapping.Product, store.Id))));
-                variants.AddRange(CreateProductVariantsFromCombinations(store,
-                    newCombinations.Where(combination => _storeMappingService.Authorize(combination.Product, store.Id))));
+                //filter combinations by the store
+                var storeCombinations = combinations.Where(combination => _storeMappingService.Authorize(combination?.Product, store.Id));
 
-                return variants.Select(variant => new Operation
+                foreach (var combination in storeCombinations)
                 {
-                    Method = "POST",
-                    Path = string.Format("/ecommerce/stores/{0}/products/{1}/variants", store.Id, variant.Id.Split('_').First()),
-                    OperationId = string.Format("create_product_variant_#{0}_to_store_{1}", variant.Id, store.Name),
-                    Body = JsonConvert.SerializeObject(variant, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                });
-            });
+                    var productVariant = CreateProductVariantByAttributeCombination(combination);
+                    if (productVariant == null)
+                        continue;
+
+                    //prepare request path and operation ID
+                    var storeId = string.Format(_mailChimpSettings.StoreIdMask, store.Id);
+                    var requestPath = string.Format(MailChimpDefaults.ProductVariantsApiPath, storeId, combination.ProductId, combination.Id);
+                    var operationId = $"createOrUpdate-productVariant-{combination.Id}-product-{combination.ProductId}-store-{store.Id}";
+
+                    //add operation
+                    operations.Add(CreateOperation(productVariant, OperationType.CreateOrUpdate, requestPath, operationId));
+                }
+            }
+
+            return operations;
         }
 
         /// <summary>
-        /// Get batch of updated product variant operations
+        /// Get operations to delete product variants
         /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetUpdatedProductVariants()
+        /// <returns>List of operations</returns>
+        private IList<Operation> GetDeleteProductVariantsOperations()
         {
-            //updated attributes
-            var updatedAttributes = _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.ProductAttribute, ActionType.Update)
-                .Select(record => _productAttributeService.GetProductAttributeMappingById(record.EntityId));
+            var operations = new List<Operation>();
 
-            //updated attribute values
-            var updatedValues = _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.AttributeValue, ActionType.Update)
-                .Select(record => _productAttributeService.GetProductAttributeValueById(record.EntityId));
+            //get records of deleted product combinations
+            var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.AttributeCombination, OperationType.Delete);
 
-            //updated attribute combinations
-            var updatedCombinations = _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.AttributeCombination, ActionType.Update)
-                .Select(record => _productAttributeService.GetProductAttributeCombinationById(record.EntityId));
-
-            return _storeService.GetAllStores().SelectMany(store =>
+            //add operations
+            operations.AddRange(_storeService.GetAllStores().SelectMany(store => records.Select(record =>
             {
-                var variants = new List<model.Variant>();
-                variants.AddRange(CreateProductVariantsFromAttributes(store,
-                    updatedAttributes.Where(attribute => _storeMappingService.Authorize(attribute.Product, store.Id))));
-                variants.AddRange(CreateProductVariantsFromValues(store,
-                    updatedValues.Where(value => value.ProductAttributeMapping != null
-                    && _storeMappingService.Authorize(value.ProductAttributeMapping.Product, store.Id))));
-                variants.AddRange(CreateProductVariantsFromCombinations(store,
-                    updatedCombinations.Where(combination => _storeMappingService.Authorize(combination.Product, store.Id))));
+                //prepare request path and operation ID
+                var storeId = string.Format(_mailChimpSettings.StoreIdMask, store.Id);
+                var requestPath = string.Format(MailChimpDefaults.ProductVariantsApiPath, storeId, record.ProductId, record.EntityId);
+                var operationId = $"delete-productVariant-{record.EntityId}-product-{record.ProductId}-store-{store.Id}";
 
-                return variants.Select(variant => new Operation
-                {
-                    Method = "PATCH",
-                    Path = string.Format("/ecommerce/stores/{0}/products/{1}/variants/{2}", store.Id, variant.Id.Split('_').First(), variant.Id),
-                    OperationId = string.Format("update_product_variant_#{0}_on_store_{1}", variant.Id, store.Name),
-                    Body = JsonConvert.SerializeObject(variant, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                });
-            });
+                return CreateOperation<mailchimp.Variant>(null, OperationType.Delete, requestPath, operationId);
+            })));
+
+            return operations;
         }
-
-        /// <summary>
-        /// Get batch of deleted product variant operations
-        /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetDeletedProductVariants()
-        {
-            //deleted attributes
-            var deletedAttributes = _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.ProductAttribute, ActionType.Delete);
-
-            //deleted attribute values
-            var deletedValues = _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.AttributeValue, ActionType.Delete);
-
-            //deleted combinations
-            var deletedCombinations = _synchronizationRecordService.GetRecordsByEntityTypeAndActionType(EntityType.AttributeCombination, ActionType.Delete);
-
-            return _storeService.GetAllStores().SelectMany(store =>
-            {
-                var operations = new List<Operation>();
-
-                //delete attributes
-                operations.AddRange(deletedAttributes.Select(attribute => new Operation
-                {
-                    Method = "DELETE",
-                    Path = string.Format("/ecommerce/stores/{0}/products/{1}/variants/{1}_a_{2}", store.Id, attribute.ProductId, attribute.Id),
-                    OperationId = string.Format("delete_product_variant_#{0}_a_{1}_from_store_{2}", attribute.ProductId, attribute.Id, store.Name)
-                }));
-
-                //delete attribute values
-                operations.AddRange(deletedValues.Select(value => new Operation
-                {
-                    Method = "DELETE",
-                    Path = string.Format("/ecommerce/stores/{0}/products/{1}/variants/{1}_v_{2}", store.Id, value.ProductId, value.Id),
-                    OperationId = string.Format("delete_product_variant_#{0}_v_{1}_from_store_{2}", value.ProductId, value.Id, store.Name)
-                }));
-
-                //delete attribute combinations
-                operations.AddRange(deletedCombinations.Select(combination => new Operation
-                {
-                    Method = "DELETE",
-                    Path = string.Format("/ecommerce/stores/{0}/products/{1}/variants/{1}_c_{2}", store.Id, combination.ProductId, combination.Id),
-                    OperationId = string.Format("delete_product_variant_#{0}_c_{1}_from_store_{2}", combination.ProductId, combination.Id, store.Name)
-                }));
-
-                return operations;
-            });
-        }
-
-        #endregion
 
         #endregion
 
         #region Orders
 
         /// <summary>
-        /// Get batch of order operations
+        /// Get operations to manage orders
         /// </summary>
         /// <returns>List of operations</returns>
-        protected IList<Operation> GetOrderOperations()
+        private IList<Operation> GetOrderOperations()
         {
-            var orderOperations = new List<Operation>();
+            var operations = new List<Operation>();
 
-            orderOperations.AddRange(GetNewOrders());
-            orderOperations.AddRange(GetUpdatedOrders());
-            orderOperations.AddRange(GetDeletedOrders());
+            //prepare operations
+            operations.AddRange(GetCreateOrdersOperations());
+            operations.AddRange(GetUpdateOrdersOperations());
+            operations.AddRange(GetDeleteOrdersOperations());
 
-            //delete records
-            _synchronizationRecordService.DeleteRecordsByEntityType(EntityType.Order);
-
-            return orderOperations;
+            return operations;
         }
 
         /// <summary>
-        /// Get batch of new order operations
+        /// Get operations to create orders
         /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetNewOrders()
+        /// <returns>List of operations</returns>
+        private IList<Operation> GetCreateOrdersOperations()
         {
-            var currency = GetCurrencyCode();
+            var operations = new List<Operation>();
 
-            //get new orders
-            var newOrders = _orderService.GetOrdersByIds(_synchronizationRecordService
-                .GetRecordsByEntityTypeAndActionType(EntityType.Order, ActionType.Create).Select(record => record.EntityId).ToArray());
+            //get created orders
+            var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Order, OperationType.Create);
+            var orders = _orderService.GetOrdersByIds(records.Select(record => record.EntityId).ToArray())
+                .Where(order => !order.Customer?.IsGuest() ?? false);
 
-            return _storeService.GetAllStores().SelectMany(store => newOrders.Where(order => order.StoreId == store.Id).Select(order =>
+            foreach (var store in _storeService.GetAllStores())
             {
-                //billing address
-                var billingAddress = order.BillingAddress != null ? CreateAddress(order.BillingAddress) : null;
+                //filter orders by the store
+                var storeOrders = orders.Where(order => order?.StoreId == store.Id);
 
-                //shipping address or pickup address
-                var shippingAddress = !order.PickUpInStore && order.ShippingAddress != null ? CreateAddress(order.ShippingAddress)
-                    : order.PickUpInStore && order.PickupAddress != null ? CreateAddress(order.PickupAddress) : null;
-
-                return new Operation
+                foreach (var order in storeOrders)
                 {
-                    Method = "POST",
-                    Path = string.Format("/ecommerce/stores/{0}/orders", store.Id),
-                    OperationId = string.Format("create_order_#{0}_to_store_{1}", order.Id, store.Name),
-                    Body = JsonConvert.SerializeObject(new model.Order
-                    {
-                        Id = order.Id.ToString(),
-                        Customer = new model.Customer { Id = order.Customer.Id.ToString() },
-                        FinancialStatus = order.PaymentStatus.ToString(),
-                        FulfillmentStatus = order.OrderStatus.ToString(),
-                        CurrencyCode = currency,
-                        OrderTotal = (double)order.OrderTotal,
-                        TaxTotal = (double)order.OrderTax,
-                        ShippingTotal = (double)order.OrderShippingInclTax,
-                        ProcessedAtForeign = order.CreatedOnUtc.ToString("s"),
-                        ShippingAddress = shippingAddress,
-                        BillingAddress = billingAddress,
-                        Lines = CreateOrderLines(order.OrderItems)
-                    }, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                };
-            }));
+                    var orderObject = MapOrder(order);
+                    if (orderObject == null)
+                        continue;
+
+                    //prepare request path and operation ID
+                    var storeId = string.Format(_mailChimpSettings.StoreIdMask, store.Id);
+                    var requestPath = string.Format(MailChimpDefaults.OrdersApiPath, storeId, string.Empty);
+                    var operationId = $"create-order-{order.Id}-store-{store.Id}";
+
+                    //add operation
+                    operations.Add(CreateOperation(orderObject, OperationType.Create, requestPath, operationId));
+                }
+            }
+
+            return operations;
         }
 
         /// <summary>
-        /// Get batch of updated order operations
+        /// Get operations to update orders
         /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetUpdatedOrders()
+        /// <returns>List of operations</returns>
+        private IList<Operation> GetUpdateOrdersOperations()
         {
-            var currency = GetCurrencyCode();
+            var operations = new List<Operation>();
 
             //get updated orders
-            var updatedOrders = _orderService.GetOrdersByIds(_synchronizationRecordService
-                .GetRecordsByEntityTypeAndActionType(EntityType.Order, ActionType.Update).Select(record => record.EntityId).ToArray());
+            var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Order, OperationType.Update);
+            var orders = _orderService.GetOrdersByIds(records.Select(record => record.EntityId).ToArray())
+                .Where(order => !order.Customer?.IsGuest() ?? false);
 
-            return _storeService.GetAllStores().SelectMany(store => updatedOrders.Where(order => order.StoreId == store.Id).Select(order =>
+            foreach (var store in _storeService.GetAllStores())
             {
-                //billing address
-                var billingAddress = order.BillingAddress != null ? CreateAddress(order.BillingAddress) : null;
+                //filter orders by the store
+                var storeOrders = orders.Where(order => order?.StoreId == store.Id);
 
-                //shipping address or pickup address
-                var shippingAddress = !order.PickUpInStore && order.ShippingAddress != null ? CreateAddress(order.ShippingAddress)
-                    : order.PickUpInStore && order.PickupAddress != null ? CreateAddress(order.PickupAddress) : null;
-
-                return new Operation
+                foreach (var order in storeOrders)
                 {
-                    Method = "PATCH",
-                    Path = string.Format("/ecommerce/stores/{0}/orders/{1}", store.Id, order.Id),
-                    OperationId = string.Format("update_order_#{0}_on_store_{1}", order.Id, store.Name),
-                    Body = JsonConvert.SerializeObject(new model.Order
-                    {
-                        Customer = new model.Customer { Id = order.Customer.Id.ToString() },
-                        FinancialStatus = order.PaymentStatus.ToString(),
-                        FulfillmentStatus = order.OrderStatus.ToString(),
-                        CurrencyCode = currency,
-                        OrderTotal = (double)order.OrderTotal,
-                        TaxTotal = (double)order.OrderTax,
-                        ShippingTotal = (double)order.OrderShippingInclTax,
-                        ProcessedAtForeign = order.CreatedOnUtc.ToString("s"),
-                        ShippingAddress = shippingAddress,
-                        BillingAddress = billingAddress,
-                        Lines = CreateOrderLines(order.OrderItems)
-                    }, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                };
-            }));
+                    var orderObject = MapOrder(order);
+                    if (orderObject == null)
+                        continue;
+
+                    //prepare request path and operation ID
+                    var storeId = string.Format(_mailChimpSettings.StoreIdMask, store.Id);
+                    var requestPath = string.Format(MailChimpDefaults.OrdersApiPath, storeId, order.Id);
+                    var operationId = $"update-order-{order.Id}-store-{store.Id}";
+
+                    //add operation
+                    operations.Add(CreateOperation(orderObject, OperationType.Update, requestPath, operationId));
+                }
+            }
+
+            return operations;
         }
 
         /// <summary>
-        /// Get batch of deleted order operations
+        /// Get operations to delete orders
         /// </summary>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetDeletedOrders()
+        /// <returns>List of operations</returns>
+        private IList<Operation> GetDeleteOrdersOperations()
         {
-            //get deleted orders
-            var deletedOrders = _orderService.GetOrdersByIds(_synchronizationRecordService
-                .GetRecordsByEntityTypeAndActionType(EntityType.Order, ActionType.Delete).Select(record => record.EntityId).ToArray());
+            var operations = new List<Operation>();
 
-            return _storeService.GetAllStores().SelectMany(store => deletedOrders.Where(order => order.StoreId == store.Id)
-                .Select(order => new Operation
-                {
-                    Method = "DELETE",
-                    Path = string.Format("/ecommerce/stores/{0}/orders{1}", store.Id, order.Id),
-                    OperationId = string.Format("delete_order_#{0}_from_store_{1}", order.Id, store.Name)
-                }));
+            //get records of deleted orders
+            var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Order, OperationType.Delete);
+
+            //add operations
+            operations.AddRange(_storeService.GetAllStores().SelectMany(store => records.Select(record =>
+            {
+                //prepare request path and operation ID
+                var storeId = string.Format(_mailChimpSettings.StoreIdMask, store.Id);
+                var requestPath = string.Format(MailChimpDefaults.OrdersApiPath, storeId, record.EntityId);
+                var operationId = $"delete-order-{record.EntityId}-store-{store.Id}";
+
+                return CreateOperation<mailchimp.Order>(null, OperationType.Delete, requestPath, operationId);
+            })));
+
+            return operations;
         }
 
         /// <summary>
-        /// Create address for MailChimp Ecommerce API
+        /// Create MailChimp order object by nopCommerce order object
         /// </summary>
-        /// <param name="address">Address (nopCommerce object)</param>
-        /// <returns>Address</returns>
-        protected model.Address CreateAddress(Address address)
+        /// <param name="order">Order</param>
+        /// <returns>Order</returns>
+        private mailchimp.Order MapOrder(Order order)
         {
-            return new model.Address
+            return order == null ? null : new mailchimp.Order
             {
-                Address1 = address.Address1 ?? string.Empty,
-                Address2 = address.Address2 ?? string.Empty,
-                City = address.City ?? string.Empty,
-                Province = address.StateProvince != null ? address.StateProvince.Name : string.Empty,
-                ProvinceCode = address.StateProvince != null ? address.StateProvince.Abbreviation : string.Empty,
-                Country = address.Country != null ? address.Country.Name : string.Empty,
-                CountryCode = address.Country != null ? address.Country.TwoLetterIsoCode : string.Empty,
-                PostalCode = address.ZipPostalCode ?? string.Empty,
+                Id = order.Id.ToString(),
+                Customer = new mailchimp.Customer { Id = order.Customer.Id.ToString() },
+                FinancialStatus = order.PaymentStatus.ToString("D"),
+                FulfillmentStatus = order.OrderStatus.ToString("D"),
+                CurrencyCode = GetCurrencyCode(),
+                OrderTotal = (double)order.OrderTotal,
+                TaxTotal = (double)order.OrderTax,
+                ShippingTotal = (double)order.OrderShippingInclTax,
+                ProcessedAtForeign = order.CreatedOnUtc.ToString("s"),
+                ShippingAddress = order.PickUpInStore && order.PickupAddress != null
+                    ? MapAddress(order.PickupAddress) : MapAddress(order.ShippingAddress),
+                BillingAddress = MapAddress(order.BillingAddress),
+                Lines = order.OrderItems.Select(item => MapOrderItem(item)).ToList()
             };
         }
 
         /// <summary>
-        /// Create orders lines from order items
+        /// Create MailChimp address object by nopCommerce address object
         /// </summary>
-        /// <param name="items">Collection of order items</param>
-        /// <returns>List of order lines</returns>
-        protected IList<model.Line> CreateOrderLines(IEnumerable<OrderItem> items)
+        /// <param name="address">Address</param>
+        /// <returns>Address</returns>
+        private mailchimp.Address MapAddress(Address address)
         {
-            return items.Select(item => new model.Line
+            return address == null ? null : new mailchimp.Address
             {
-                Id = item.Id.ToString(),
-                ProductId = item.ProductId.ToString(),
-                ProductVariantId = GetProductVariantId(item.Product, item.AttributesXml),
-                Price = (double)item.PriceInclTax,
-                Quantity = item.Quantity
-            }).ToList();
+                Address1 = address.Address1,
+                Address2 = address.Address2,
+                City = address.City,
+                Province = address.StateProvince?.Name,
+                ProvinceCode = address.StateProvince?.Abbreviation,
+                Country = address.Country?.Name,
+                CountryCode = address.Country?.TwoLetterIsoCode,
+                PostalCode = address.ZipPostalCode,
+            };
         }
 
         /// <summary>
-        /// Get product variant identifier
+        /// Create MailChimp line object by nopCommerce order item object
         /// </summary>
-        /// <param name="product">Product</param>
-        /// <param name="attributesXml">Product atrributes (XML format)</param>
-        /// <returns>Product variant identifier</returns>
-        protected string GetProductVariantId(Product product, string attributesXml)
+        /// <param name="item">Order item</param>
+        /// <returns>Line</returns>
+        private mailchimp.Line MapOrderItem(OrderItem item)
         {
-            //first set identifier to default
-            var variantId = product != null ? product.Id.ToString() : string.Empty;
-
-            //try get combination
-            var combination = _productAttributeParser.FindProductAttributeCombination(product, attributesXml);
-            if (combination != null)
-                variantId = string.Format("{0}_c_{1}", product.Id, combination.Id);
-            else
+            return item?.Product == null ? null : new mailchimp.Line
             {
-                //or try get certain attribute value
-                var values = _productAttributeParser.ParseProductAttributeValues(attributesXml);
-                if (values.Any())
-                    variantId = string.Format("{0}_v_{1}", product.Id, values.First().Id);
-                else
-                {
-                    //or try get attribute
-                    var attributes = _productAttributeParser.ParseProductAttributeMappings(attributesXml);
-                    if (attributes.Any())
-                        variantId = string.Format("{0}_a_{1}", product.Id, attributes.First().Id);
-                }
-            }
-
-            return variantId;
+                Id = item.Id.ToString(),
+                ProductId = item.ProductId.ToString(),
+                ProductVariantId = _productAttributeParser
+                    .FindProductAttributeCombination(item.Product, item.AttributesXml)?.Id.ToString() ?? Guid.Empty.ToString(),
+                Price = (double)item.PriceInclTax,
+                Quantity = item.Quantity
+            };
         }
 
         #endregion
@@ -1237,133 +1291,131 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         #region Carts
 
         /// <summary>
-        /// Get batch of cart operations
+        /// Get operations to manage carts
         /// </summary>
-        /// <returns>List of operations</returns>
-        protected async Task<IList<Operation>> GetCartOperations()
+        /// <returns>The asynchronous task whose result contains the list of operations</returns>
+        private async Task<IList<Operation>> GetCartOperations()
         {
-            var cartOperations = new List<Operation>();
+            var operations = new List<Operation>();
+
+            //get customers with shopping cart
+            var customersWithCart = _customerService.GetAllCustomers(loadOnlyWithShoppingCart: true, sct: ShoppingCartType.ShoppingCart)
+                .Where(customer => !customer.IsGuest());
 
             foreach (var store in _storeService.GetAllStores())
             {
-                //get customers with shopping cart
-                //customer ID in nop equals cart ID in MailChimp
-                var customers = _customerService.GetAllCustomers(loadOnlyWithShoppingCart: true, sct: ShoppingCartType.ShoppingCart)
-                    .Where(customer => customer.ShoppingCartItems.Any(cart => cart.StoreId == store.Id)).ToList();
+                var storeId = string.Format(_mailChimpSettings.StoreIdMask, store.Id);
 
-                var cartIds = new List<string>();
+                //filter customers with cart by the store
+                var storeCustomersWithCart = customersWithCart
+                    .Where(customer => customer.ShoppingCartItems.Any(cart => cart?.StoreId == store.Id)).ToList();
 
                 //get existing carts on MailChimp
-                try
+                var cartsIds = await HandleRequest(async () =>
                 {
-                    var carts = await Manager.ECommerceStores.Carts(store.Id.ToString())
-                        .GetAllAsync(new QueryableBaseRequest { FieldsToInclude = "carts.id" });
-                    cartIds = carts.Select(cart => cart.Id).ToList();
+                    //get number of carts
+                    var cartNumber = (await _mailChimpManager.ECommerceStores.Carts(storeId).GetResponseAsync())?.TotalItems
+                        ?? throw new NopException("No response from the service");
+
+                    return (await _mailChimpManager.ECommerceStores.Carts(storeId)
+                        .GetAllAsync(new QueryableBaseRequest { FieldsToInclude = "carts.id", Limit = cartNumber }))
+                        ?.Select(cart => cart.Id).ToList()
+                        ?? throw new NopException("No response from the service");
+                }) ?? new List<string>();
+
+                //add operations to create carts
+                var newCustomersWithCart = storeCustomersWithCart.Where(customer => !cartsIds.Contains(customer.Id.ToString()));
+                foreach (var customer in newCustomersWithCart)
+                {
+                    var cart = CreateCartByCustomer(customer, store.Id);
+                    if (cart == null)
+                        continue;
+
+                    //prepare request path and operation ID
+                    var requestPath = string.Format(MailChimpDefaults.CartsApiPath, storeId, string.Empty);
+                    var operationId = $"create-cart-{customer.Id}-store-{store.Id}";
+
+                    //add operation
+                    operations.Add(CreateOperation(cart, OperationType.Create, requestPath, operationId));
                 }
-                catch (MailChimpNotFoundException) { }
-                
-                cartOperations.AddRange(GetNewCarts(store, customers.Where(customer => !cartIds.Contains(customer.Id.ToString()))));
-                cartOperations.AddRange(GetUpdatedCarts(store, customers.Where(customer => cartIds.Contains(customer.Id.ToString()))));
-                cartOperations.AddRange(GetDeletedCarts(store, cartIds.Except(customers.Select(customer => customer.Id.ToString()))));
+
+                //add operations to update carts
+                var customersWithUpdatedCart = storeCustomersWithCart.Where(customer => cartsIds.Contains(customer.Id.ToString()));
+                foreach (var customer in customersWithUpdatedCart)
+                {
+                    var cart = CreateCartByCustomer(customer, store.Id);
+                    if (cart == null)
+                        continue;
+
+                    //prepare request path and operation ID
+                    var requestPath = string.Format(MailChimpDefaults.CartsApiPath, storeId, customer.Id);
+                    var operationId = $"update-cart-{customer.Id}-store-{store.Id}";
+
+                    //add operation
+                    operations.Add(CreateOperation(cart, OperationType.Update, requestPath, operationId));
+                }
+
+                //add operations to delete carts
+                var customersIdsWithoutCart = cartsIds.Except(storeCustomersWithCart.Select(customer => customer.Id.ToString()));
+                operations.AddRange(customersIdsWithoutCart.Select(customerId =>
+                {
+                    //prepare request path and operation ID
+                    var requestPath = string.Format(MailChimpDefaults.CartsApiPath, storeId, customerId);
+                    var operationId = $"delete-cart-{customerId}-store-{store.Id}";
+
+                    return CreateOperation<mailchimp.Cart>(null, OperationType.Delete, requestPath, operationId);
+                }));
             }
 
-            return cartOperations;
+            return operations;
         }
 
         /// <summary>
-        /// Get batch of new cart operations
+        /// Create MailChimp cart object by nopCommerce customer object
         /// </summary>
-        /// <param name="store">Store</param>
-        /// <param name="customers">Collections of customers with uncompleted cart</param>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetNewCarts(Store store, IEnumerable<Customer> customers)
+        /// <param name="customer">Customer</param>
+        /// <param name="storeId">Store identifier</param>
+        /// <returns>Cart</returns>
+        private mailchimp.Cart CreateCartByCustomer(Customer customer, int storeId)
         {
-            var currency = GetCurrencyCode();
+            if (customer == null)
+                return null;
 
-            return customers.Select(customer =>
+            //create cart lines
+            var lines = customer.ShoppingCartItems.LimitPerStore(storeId)
+                .Select(item => MapShoppingCartItem(item)).Where(line => line != null).ToList();
+
+            return new mailchimp.Cart
             {
-                var lines = CreateCartLines(customer.ShoppingCartItems.LimitPerStore(store.Id));
-
-                return new Operation
-                {
-                    Method = "POST",
-                    Path = string.Format("/ecommerce/stores/{0}/carts", store.Id),
-                    OperationId = string.Format("create_cart_#{0}_to_store_{1}", customer.Id, store.Name),
-                    Body = JsonConvert.SerializeObject(new model.Cart
-                    {
-                        Id = customer.Id.ToString(),
-                        Customer = new model.Customer { Id = customer.Id.ToString() },
-                        CheckoutUrl = string.Format("{0}cart/", _webHelper.GetStoreLocation(store.SslEnabled)),
-                        CurrencyCode = currency,
-                        OrderTotal = lines.Sum(line => line.Price),
-                        Lines = lines
-                    }, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                };
-            });
+                Id = customer.Id.ToString(),
+                Customer = new mailchimp.Customer { Id = customer.Id.ToString() },
+                CheckoutUrl = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
+                    .RouteUrl("ShoppingCart", null, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme),
+                CurrencyCode = GetCurrencyCode(),
+                OrderTotal = lines.Sum(line => line.Price),
+                Lines = lines
+            };
         }
 
         /// <summary>
-        /// Get batch of updated cart operations
+        /// Create MailChimp line object by nopCommerce shopping cart item object
         /// </summary>
-        /// <param name="store">Store</param>
-        /// <param name="customers">Collections of customers with uncompleted cart</param>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetUpdatedCarts(Store store, IEnumerable<Customer> customers)
+        /// <param name="item">Shopping cart item</param>
+        /// <returns>Line</returns>
+        private mailchimp.Line MapShoppingCartItem(ShoppingCartItem item)
         {
-            var currency = GetCurrencyCode();
-
-            return customers.Select(customer =>
-            {
-                var lines = CreateCartLines(customer.ShoppingCartItems.LimitPerStore(store.Id));
-
-                return new Operation
-                {
-                    Method = "PATCH",
-                    Path = string.Format("/ecommerce/stores/{0}/carts/{1}", store.Id, customer.Id),
-                    OperationId = string.Format("update_cart_#{0}_on_store_{1}", customer.Id, store.Name),
-                    Body = JsonConvert.SerializeObject(new model.Cart
-                    {
-                        Customer = new model.Customer { Id = customer.Id.ToString() },
-                        CurrencyCode = currency,
-                        OrderTotal = lines.Sum(line => line.Price),
-                        Lines = lines
-                    }, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
-                };
-            });
-        }
-
-        /// <summary>
-        /// Get batch of deleted cart operations
-        /// </summary>
-        /// <param name="store">Store</param>
-        /// <param name="customerIds">Collections of customer identifiers</param>
-        /// <returns>Collection of operations</returns>
-        protected IEnumerable<Operation> GetDeletedCarts(Store store, IEnumerable<string> customerIds)
-        {
-            return customerIds.Select(id => new Operation
-            {
-                Method = "DELETE",
-                Path = string.Format("/ecommerce/stores/{0}/carts/{1}", store.Id, id),
-                OperationId = string.Format("delete_cart_#{0}_from_store_{1}", id, store.Name)
-            });
-        }
-
-        /// <summary>
-        /// Create cart lines from shopping cart items
-        /// </summary>
-        /// <param name="items">Collection of shopping cart items</param>
-        /// <returns>Collection of cart lines</returns>
-        protected IList<model.Line> CreateCartLines(IEnumerable<ShoppingCartItem> items)
-        {
-            return items.Select(item => new model.Line
+            return item?.Product == null ? null : new mailchimp.Line
             {
                 Id = item.Id.ToString(),
                 ProductId = item.ProductId.ToString(),
-                ProductVariantId = GetProductVariantId(item.Product, item.AttributesXml),
+                ProductVariantId = _productAttributeParser
+                    .FindProductAttributeCombination(item.Product, item.AttributesXml)?.Id.ToString() ?? Guid.Empty.ToString(),
                 Price = (double)_priceCalculationService.GetSubTotal(item),
                 Quantity = item.Quantity
-            }).ToList();
+            };
         }
+
+        #endregion
 
         #endregion
 
@@ -1374,232 +1426,319 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         #region Methods
 
         /// <summary>
-        /// Create data for the first synchronization
+        /// Create data for the first or manual synchronization
         /// </summary>
-        public void CreateInitiateData()
+        public void CreateInitialData()
         {
             //add all subscriptions
             foreach (var subscription in _newsLetterSubscriptionService.GetAllNewsLetterSubscriptions())
-                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Subscription, subscription.Id, ActionType.Create);
+                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Subscription, subscription.Id, OperationType.Create);
 
             //add stores
             foreach (var store in _storeService.GetAllStores())
-                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Store, store.Id, ActionType.Create);
+                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Store, store.Id, OperationType.Create);
 
-            //add not guests customers
+            //add registered customers
             foreach (var customer in _customerService.GetAllCustomers().Where(customer => !customer.IsGuest()))
-                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Customer, customer.Id, ActionType.Create);
+                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Customer, customer.Id, OperationType.Create);
 
             //add products
             foreach (var product in _productService.SearchProducts())
-                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Product, product.Id, ActionType.Create);
+                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Product, product.Id, OperationType.Create);
 
             //add orders
             foreach (var order in _orderService.SearchOrders())
-                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Order, order.Id, ActionType.Create);
+                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Order, order.Id, OperationType.Create);
         }
 
         /// <summary>
-        /// Synchronize nopCommerce data with MailChimp
+        /// Synchronize data with MailChimp
         /// </summary>
-        /// <returns>Batch identifier</returns>
-        public async Task<string> Synchronize()
+        /// <param name="manualSynchronization">Whether it's a manual synchronization</param>
+        /// <returns>The asynchronous task whose result determines whether the synchronization started</returns>
+        public async Task<bool> Synchronize(bool manualSynchronization = false)
         {
-            if (!IsConfigured)
-                return string.Empty;
+            return await HandleRequest(async () =>
+            {
+                //prepare records to manual synchronization
+                if (manualSynchronization)
+                {
+                    var recordsPrepared = await PrepareRecordsToManualSynchronization();
+                    if (!recordsPrepared)
+                        return false;
+                }
 
-            var mailChimpSettings = _settingService.LoadSetting<MailChimpSettings>();
+                //prepare batch webhook
+                var webhookPrepared = await PrepareBatchWebhook();
+                if (!webhookPrepared)
+                    return false;
 
-            //manage subscriptions
-            var operations = new List<Operation>(GetSubscriptionOperations(mailChimpSettings));
+                var operations = new List<Operation>();
 
-            //manage Ecommerce resources
-            if (mailChimpSettings.UseEcommerceApi)
-                operations.AddRange(await GetEcommerceApiOperations(mailChimpSettings));
+                //preare subscription operations
+                operations.AddRange(GetSubscriptionsOperations());
 
-            //send request
-            var batch = await Manager.Batches.AddAsync(new BatchRequest { Operations = operations });
-            
-            //log information after the batch operation is complete
-            LogAfterComplete(batch);
+                //prepare E-Commerce operations
+                if (_mailChimpSettings.PassEcommerceData)
+                    operations.AddRange(await GetEcommerceApiOperations());
 
-            return batch.Id;
+                //start synchronization
+                var batch = await _mailChimpManager.Batches.AddAsync(new BatchRequest { Operations = operations })
+                    ?? throw new NopException("No response from the service");
+
+                //synchronization successfully started, thus delete records
+                if (_mailChimpSettings.PassEcommerceData)
+                    _synchronizationRecordService.ClearRecords();
+                else
+                    _synchronizationRecordService.DeleteRecordsByEntityType(EntityType.Subscription);
+
+                return true;
+            });
         }
 
         /// <summary>
-        /// Get MailChimp account information
+        /// Get account information
         /// </summary>
-        /// <returns>Account information</returns>
+        /// <returns>The asynchronous task whose result contains the account information</returns>
         public async Task<string> GetAccountInfo()
         {
-            if (!IsConfigured)
-                return string.Empty;
+            return await HandleRequest(async () =>
+            {
+                //get account info
+                var apiInfo = await _mailChimpManager.Api.GetInfoAsync()
+                    ?? throw new NopException("No response from the service");
 
-            var apiInfo = await Manager.Api.GetInfoAsync();
-
-            return string.Format("{0}{1}Total subscribers: {2}", apiInfo.AccountName, Environment.NewLine, apiInfo.TotalSubscribers);
+                return $"{apiInfo.AccountName}{Environment.NewLine}Total subscribers: {apiInfo.TotalSubscribers}";
+            });
         }
 
         /// <summary>
-        /// Get available lists of contacts for the synchronization
+        /// Get available user lists for the synchronization
         /// </summary>
-        /// <returns>List of lists</returns>
+        /// <returns>The asynchronous task whose result contains the list of user lists</returns>
         public async Task<IList<SelectListItem>> GetAvailableLists()
         {
-            var result = new List<SelectListItem> { new SelectListItem { Text = "<Select list>", Value = "0" } };
+            return await HandleRequest(async () =>
+            {
+                //get number of lists
+                var listNumber = (await _mailChimpManager.Lists.GetResponseAsync())?.TotalItems
+                    ?? throw new NopException("No response from the service");
 
-            if (!IsConfigured)
-                return result;
+                //get all available lists
+                var availableLists = await _mailChimpManager.Lists.GetAllAsync(new ListRequest { Limit = listNumber })
+                    ?? throw new NopException("No response from the service");
 
-            var totalItems = (await Manager.Lists.GetResponseAsync()).TotalItems;
-            var availableLists = await Manager.Lists.GetAllAsync(new ListRequest { Limit = totalItems });
-            result.AddRange(availableLists.Select(list => new SelectListItem { Text = list.Name, Value = list.Id }));
-
-            return result;
+                return availableLists.Select(list => new SelectListItem { Text = list.Name, Value = list.Id }).ToList();
+            });
         }
 
         /// <summary>
-        /// Create webhook for the subscribe and unsubscribe events
+        /// Prepare webhook for passed list
         /// </summary>
-        /// <param name="listId">List identifier</param>
-        /// <param name="currentWebhookId">Current webhook identifier, if exists</param>
-        /// <returns>Webhook identifier</returns>
-        public async Task<string> CreateWebhook(string listId, string currentWebhookId)
+        /// <param name="listId">Current selected list identifier</param>
+        /// <returns>The asynchronous task whose result determines whether webhook prepared</returns>
+        public async Task<bool> PrepareWebhook(string listId)
         {
-            if (!IsConfigured)
-                return string.Empty;
-
-            try
+            return await HandleRequest(async () =>
             {
-                //check if already exists
-                if (!string.IsNullOrEmpty(currentWebhookId))
-                    return (await Manager.WebHooks.GetAsync(listId, currentWebhookId)).Id;
-            }
-            catch (MailChimpNotFoundException) { }
+                //if list ID is empty, nothing to do
+                if (string.IsNullOrEmpty(listId))
+                    return true;
 
-            //create new one
-            var url = $"{_webHelper.GetStoreLocation(_storeContext.CurrentStore.SslEnabled)}Plugins/MailChimp/Webhook";
-            var batch = await Manager.Batches.AddAsync(new BatchRequest
-            {
-                Operations = new List<Operation>
+                //generate webhook URL
+                var webhookUrl = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
+                    .RouteUrl(MailChimpDefaults.WebhookRoute, null, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme);
+
+                //get current list webhooks 
+                var listWebhooks = await _mailChimpManager.WebHooks.GetAllAsync(listId)
+                    ?? throw new NopException("No response from the service");
+
+                //create the new one if not exists
+                var listWebhook = listWebhooks
+                    .FirstOrDefault(webhook => !string.IsNullOrEmpty(webhook.Url) && webhook.Url.Equals(webhookUrl, StringComparison.InvariantCultureIgnoreCase));
+                if (string.IsNullOrEmpty(listWebhook?.Id))
                 {
-                    new Operation
+                    listWebhook = await _mailChimpManager.WebHooks.AddAsync(listId, new mailchimp.WebHook
                     {
-                        Method = "POST",
-                        Path = $"/lists/{listId}/webhooks",
-                        OperationId = $"create_webhook_to_list_#{listId}",
-                        Body = JsonConvert.SerializeObject(new WebHook
-                        {
-                            ListId = listId,
-                            Event = new model.Event { Unsubscribe = true, Subscribe = true },
-                            Source = new model.Source { Admin = true, User = true },
-                            Url = url
-                        }, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
+                        Event = new mailchimp.Event { Subscribe = true, Unsubscribe = true, Cleaned = true },
+                        ListId = listId,
+                        Source = new mailchimp.Source { Admin = true, User = true },
+                        Url = webhookUrl
+                    }) ?? throw new NopException("No response from the service");
+                }
+
+                return true;
+            });
+        }
+
+        /// <summary>
+        /// Delete webhooks
+        /// </summary>
+        /// <returns>The asynchronous task whose result determines whether webhooks successfully deleted</returns>
+        public async Task<bool> DeleteWebhooks()
+        {
+            return await HandleRequest(async () =>
+            {
+                //get all account webhooks
+                var listNumber = (await _mailChimpManager.Lists.GetResponseAsync())?.TotalItems
+                    ?? throw new NopException("No response from the service");
+
+                var allListIds = (await _mailChimpManager.Lists.GetAllAsync(new ListRequest { FieldsToInclude = "lists.id", Limit = listNumber }))
+                    ?.Select(list => list.Id).ToList()
+                    ?? throw new NopException("No response from the service");
+
+                var allWebhooks = (await Task.WhenAll(allListIds.Select(listId => _mailChimpManager.WebHooks.GetAllAsync(listId))))
+                    .SelectMany(webhook => webhook).ToList();
+
+                //generate webhook URL
+                var webhookUrl = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
+                    .RouteUrl(MailChimpDefaults.WebhookRoute, null, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme);
+
+                //delete all webhook with matched URL
+                var webhooksToDelete = allWebhooks.Where(webhook => webhook.Url.Equals(webhookUrl, StringComparison.InvariantCultureIgnoreCase));
+                foreach (var webhook in webhooksToDelete)
+                {
+                    await HandleRequest(async () =>
+                    {
+                        await _mailChimpManager.WebHooks.DeleteAsync(webhook.ListId, webhook.Id);
+                        return true;
+                    });
+                }
+
+                return true;
+            });
+        }
+
+        /// <summary>
+        /// Delete batch webhook
+        /// </summary>
+        /// <returns>The asynchronous task whose result determines whether the webhook successfully deleted</returns>
+        public async Task<bool> DeleteBatchWebhook()
+        {
+            return await HandleRequest(async () =>
+            {
+                //get all batch webhooks 
+                var allBatchWebhooks = await _mailChimpManager.BatchWebHooks.GetAllAsync(new QueryableBaseRequest { Limit = int.MaxValue })
+                    ?? throw new NopException("No response from the service");
+
+                //generate webhook URL
+                var webhookUrl = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
+                    .RouteUrl(MailChimpDefaults.BatchWebhookRoute, null, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme);
+
+                //delete webhook if exists
+                var batchWebhook = allBatchWebhooks
+                    .FirstOrDefault(webhook => webhook.Url.Equals(webhookUrl, StringComparison.InvariantCultureIgnoreCase));
+
+                if (!string.IsNullOrEmpty(batchWebhook?.Id))
+                    await _mailChimpManager.BatchWebHooks.DeleteAsync(batchWebhook.Id);
+
+                return true;
+            });
+        }
+
+        /// <summary>
+        /// Handle batch webhook
+        /// </summary>
+        /// <param name="form">Request form parameters</param>
+        /// <returns>The asynchronous task whose result determines whether the batch webhook successfully handled</returns>
+        public async Task<bool> HandleBatchWebhook(IFormCollection form)
+        {
+            return await HandleRequest(async () =>
+            {
+                var batchWebhookType = "batch_operation_completed";
+                if (!form.TryGetValue("type", out StringValues webhookType) || !webhookType.Equals(batchWebhookType))
+                    return false;
+
+                var completeStatus = "finished";
+                if (!form.TryGetValue("data[status]", out StringValues batchStatus) || !batchStatus.Equals(completeStatus))
+                    return false;
+
+                if (!form.TryGetValue("data[id]", out StringValues batchId))
+                    return false;
+
+                await LogSynchronizationResult(batchId);
+
+                return await Task.FromResult(true);
+            });
+        }
+
+        /// <summary>
+        /// Handle webhook
+        /// </summary>
+        /// <param name="form">Request form parameters</param>
+        /// <returns>The asynchronous task whose result determines whether the webhook successfully handled</returns>
+        public async Task<bool> HandleWebhook(IFormCollection form)
+        {
+            return await HandleRequest(async () =>
+            {
+                //try to get subscriber list identifier
+                if (!form.TryGetValue("data[list_id]", out StringValues listId))
+                    return false;
+
+                //get stores that tied to a specific MailChimp list
+                var settingsName = $"{nameof(MailChimpSettings)}.{nameof(MailChimpSettings.ListId)}";
+                var storeIds = _storeService.GetAllStores()
+                    .Where(store => listId.Equals(_settingService.GetSettingByKey<string>(settingsName, storeId: store.Id, loadSharedValueIfNotFound: true)))
+                    .Select(store => store.Id).ToList();
+
+                if (!form.TryGetValue("data[email]", out StringValues email))
+                    return false;
+
+                if (!form.TryGetValue("type", out StringValues webhookType))
+                    return false;
+
+                //deactivate subscriptions
+                var unsubscribeType = "unsubscribe";
+                var cleanedType = "cleaned";
+                if (webhookType.Equals(unsubscribeType) || webhookType.Equals(cleanedType))
+                {
+                    //get existing subscriptions by email
+                    var subscriptions = storeIds
+                        .Select(storeId => _newsLetterSubscriptionService.GetNewsLetterSubscriptionByEmailAndStoreId(email, storeId))
+                        .Where(subscription => !string.IsNullOrEmpty(subscription?.Email)).ToList();
+
+                    foreach (var subscription in subscriptions)
+                    {
+                        //deactivate
+                        subscription.Active = false;
+                        _newsLetterSubscriptionService.UpdateNewsLetterSubscription(subscription, false);
+                        _logger.Information($"MailChimp info. Email {subscription.Email} was unsubscribed from the store #{subscription.StoreId}");
                     }
                 }
-            });
 
-            do
-            {
-                await Task.Delay(1000);
-                batch = await Manager.Batches.GetBatchStatus(batch.Id);
-            } while (!BatchOperationIsComplete(batch));
-
-            var newWebhook = (await Manager.WebHooks.GetAllAsync(listId)).FirstOrDefault(webhook => webhook.Url.Equals(url));
-            if (newWebhook != null)
-                return newWebhook.Id;
-
-            _logger.Error("MailChimp error: webhook was not created");
-            return string.Empty;
-        }
-
-        /// <summary>
-        /// Delete webhook from MailChimp
-        /// </summary>
-        /// <param name="listId">List identifier</param>
-        /// <param name="currentWebhookId">Webhook identifier</param>
-        public void DeleteWebhook(string listId, string currentWebhookId)
-        {
-            if (!IsConfigured)
-                return;
-
-            try
-            {
-                Manager.WebHooks.DeleteAsync(listId, currentWebhookId);
-            }
-            catch (MailChimpNotFoundException) { }
-        }
-
-        /// <summary>
-        /// Get information about batch operations
-        /// </summary>
-        /// <param name="batchId">Batch identifier</param>
-        /// <returns>True if batch is completed, otherwise false; information about completed operations</returns>
-        public async Task<Tuple<bool, string>> GetBatchInfo(string batchId)
-        {
-            //we use Tuple because the async methods cannot be used with out parameters
-            if (!IsConfigured)
-                return new Tuple<bool, string>(true, string.Empty);
-
-            var batch = await Manager.Batches.GetBatchStatus(batchId);
-            var info = $"Started at: {batch.SubmittedAt}{Environment.NewLine}Finished operations: {batch.FinishedOperations}{Environment.NewLine}Errored operations: {batch.ErroredOperations}{Environment.NewLine}Total operations: {batch.TotalOperations}{Environment.NewLine}";
-
-            return BatchOperationIsComplete(batch)
-                ? new Tuple<bool, string>(true, $"{info}Completed at: {batch.CompletedAt}") : new Tuple<bool, string>(false, info);
-        }
-
-        /// <summary>
-        /// Subscribe or unsubscribe particular email
-        /// </summary>
-        /// <param name="form">Input parameters</param>
-        public void WebhookHandler(IFormCollection form)
-        {
-            if (!IsConfigured)
-                return;
-            
-            if (string.IsNullOrEmpty(form["data[list_id]"]) || string.IsNullOrEmpty(form["type"]))
-                return;
-
-            foreach (var store in _storeService.GetAllStores())
-            {
-                var listId = _settingService.GetSettingByKey<string>("mailchimpsettings.listid", storeId: store.Id, loadSharedValueIfNotFound: true) ?? string.Empty;
-                if (!listId.Equals(form["data[list_id]"]))
-                    continue;
-
-                //get subscription by email and store identifier
-                var subscription = _newsLetterSubscriptionService.GetNewsLetterSubscriptionByEmailAndStoreId(form["data[email]"], store.Id);
-                switch (form["type"].ToString().ToLowerInvariant())
+                //activate subscriptions
+                var subscribeType = "subscribe";
+                if (webhookType.Equals(subscribeType))
                 {
-                    case "unsubscribe":
-                        if (subscription != null)
+                    foreach (var storeId in storeIds)
+                    {
+                        var subscription = _newsLetterSubscriptionService.GetNewsLetterSubscriptionByEmailAndStoreId(email, storeId);
+
+                        //if subscription doesn't exist, create the new one
+                        if (subscription == null)
                         {
-                            //deactivate subscription
-                            subscription.Active = false;
-                            _newsLetterSubscriptionService.UpdateNewsLetterSubscription(subscription, false);
-                            _logger.Information($"MailChimp: email {form["data[email]"]} unsubscribed from store {store.Name}");
-                        }
-                        break;
-                    case "subscribe":
-                        //if subscription already exists just activate
-                        if (subscription != null)
-                        {
-                            subscription.Active = true;
-                            _newsLetterSubscriptionService.UpdateNewsLetterSubscription(subscription, false);
-                        }
-                        else
-                            //or create new one
                             _newsLetterSubscriptionService.InsertNewsLetterSubscription(new NewsLetterSubscription
                             {
                                 NewsLetterSubscriptionGuid = Guid.NewGuid(),
-                                Email = form["data[email]"],
-                                StoreId = store.Id,
+                                Email = email,
+                                StoreId = storeId,
                                 Active = true,
                                 CreatedOnUtc = DateTime.UtcNow
                             }, false);
-                        _logger.Information($"MailChimp: email {form["data[email]"]} subscribed to store {store.Name}");
-                        break;
+                        }
+                        else
+                        {
+                            //or just activate the existing one
+                            subscription.Active = true;
+                            _newsLetterSubscriptionService.UpdateNewsLetterSubscription(subscription, false);
+
+                        }
+                        _logger.Information($"MailChimp info. Email {subscription.Email} has been subscribed to the store #{subscription.StoreId}");
+                    }
                 }
-            }
+
+                return await Task.FromResult(true);
+            });
         }
 
         #endregion

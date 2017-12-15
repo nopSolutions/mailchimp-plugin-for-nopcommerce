@@ -1,8 +1,12 @@
-﻿using System.Net;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using tasks = System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc.Rendering;
 using Nop.Core;
+using Nop.Core.Caching;
 using Nop.Core.Domain.Tasks;
 using Nop.Plugin.Misc.MailChimp.Domain;
 using Nop.Plugin.Misc.MailChimp.Models;
@@ -11,9 +15,9 @@ using Nop.Services.Configuration;
 using Nop.Services.Localization;
 using Nop.Services.Stores;
 using Nop.Services.Tasks;
-using Nop.Web.Framework.Controllers;
-using Nop.Core.Http.Extensions;
 using Nop.Web.Framework;
+using Nop.Web.Framework.Controllers;
+using Nop.Web.Framework.Mvc;
 using Nop.Web.Framework.Mvc.Filters;
 
 namespace Nop.Plugin.Misc.MailChimp.Controllers
@@ -25,6 +29,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         private readonly ILocalizationService _localizationService;
         private readonly IScheduleTaskService _scheduleTaskService;
         private readonly ISettingService _settingService;
+        private readonly IStaticCacheManager _cacheManager;
         private readonly IStoreService _storeService;
         private readonly ISynchronizationRecordService _synchronizationRecordService;
         private readonly IWorkContext _workContext;
@@ -37,6 +42,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         public MailChimpController(ILocalizationService localizationService,
             IScheduleTaskService scheduleTaskService,
             ISettingService settingService,
+            IStaticCacheManager cacheManager,
             IStoreService storeService,
             ISynchronizationRecordService synchronizationRecordService,
             IWorkContext workContext,
@@ -45,6 +51,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
             this._localizationService = localizationService;
             this._scheduleTaskService = scheduleTaskService;
             this._settingService = settingService;
+            this._cacheManager = cacheManager;
             this._storeService = storeService;
             this._synchronizationRecordService = synchronizationRecordService;
             this._workContext = workContext;
@@ -53,200 +60,220 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
 
         #endregion
 
-        #region Utilities
-
-        /// <summary>
-        /// Get auto synchronization task
-        /// </summary>
-        /// <returns>Task</returns>
-        protected ScheduleTask FindScheduledTask()
-        {
-            return _scheduleTaskService.GetTaskByType("Nop.Plugin.Misc.MailChimp.Services.MailChimpSynchronizationTask, Nop.Plugin.Misc.MailChimp");
-        }
-
-        #endregion
-
         #region Methods
 
         [AuthorizeAdmin]
         [Area(AreaNames.Admin)]
-        public IActionResult Configure()
+        public async Task<IActionResult> Configure()
         {
             //load settings for a chosen store scope
             var storeId = GetActiveStoreScopeConfiguration(_storeService, _workContext);
             var mailChimpSettings = _settingService.LoadSetting<MailChimpSettings>(storeId);
 
-            var model = new MailChimpModel
+            //prepare model
+            var model = new ConfigurationModel
             {
                 ApiKey = mailChimpSettings.ApiKey,
-                UseEcommerceApi = mailChimpSettings.UseEcommerceApi,
+                PassEcommerceData = mailChimpSettings.PassEcommerceData,
                 ListId = mailChimpSettings.ListId,
+                ListId_OverrideForStore = storeId > 0 && _settingService.SettingExists(mailChimpSettings, settings => settings.ListId, storeId),
                 ActiveStoreScopeConfiguration = storeId
             };
 
-            if (storeId > 0)
-                model.ListId_OverrideForStore = _settingService.SettingExists(mailChimpSettings, x => x.ListId, storeId);
+            //check whether synchronization was started
+            var synchronizationStatus = _cacheManager.Get<SynchronizationStatus?>(MailChimpDefaults.SynchronizationStatusCacheKey);
+            model.SynchronizationStarted = synchronizationStatus == SynchronizationStatus.Started;
 
-            //synchronization task
-            var task = FindScheduledTask();
-            if (task != null)
-            {
-                model.AutoSyncEachMinutes = task.Seconds / 60;
-                model.AutoSync = task.Enabled;
-            }
-
-            //get account info
-            //we use Task.Run() because child actions cannot be run asynchronously
-            model.AccountInfo = tasks.Task.Run(() => _mailChimpManager.GetAccountInfo()).Result;
+            //prepare account info
+            if (!string.IsNullOrEmpty(mailChimpSettings.ApiKey))
+                model.AccountInfo = await _mailChimpManager.GetAccountInfo();
 
             //prepare available lists
-            model.AvailableLists = tasks.Task.Run(() => _mailChimpManager.GetAvailableLists()).Result;
+            if (!string.IsNullOrEmpty(mailChimpSettings.ApiKey))
+                model.AvailableLists = await _mailChimpManager.GetAvailableLists() ?? new List<SelectListItem>();
+
+            var defaultListId = mailChimpSettings.ListId;
+            if (!model.AvailableLists.Any())
+            {
+                //add the special item for 'there are no lists' with empty guid value
+                model.AvailableLists.Add(new SelectListItem
+                {
+                    Text = _localizationService.GetResource("Plugins.Misc.MailChimp.Fields.List.NotExist"),
+                    Value = Guid.Empty.ToString()
+                });
+                defaultListId = Guid.Empty.ToString();
+            }
+            else if (string.IsNullOrEmpty(mailChimpSettings.ListId) || mailChimpSettings.ListId.Equals(Guid.Empty.ToString()))
+                defaultListId = model.AvailableLists.FirstOrDefault()?.Value;
+
+            //set the default list
+            model.ListId = defaultListId;
+            mailChimpSettings.ListId = defaultListId;
+            _settingService.SaveSettingOverridablePerStore(mailChimpSettings, settings => settings.ListId, model.ListId_OverrideForStore, storeId);
+
+            //synchronization task
+            var task = _scheduleTaskService.GetTaskByType(MailChimpDefaults.SynchronizationTask);
+            if (task != null)
+            {
+                model.SynchronizationPeriod = task.Seconds / 60 / 60;
+                model.AutoSynchronization = task.Enabled;
+            }
 
             return View("~/Plugins/Misc.MailChimp/Views/Configure.cshtml", model);
         }
 
         [HttpPost, ActionName("Configure")]
         [FormValueRequired("save")]
+        [AdminAntiForgery]
         [AuthorizeAdmin]
         [Area(AreaNames.Admin)]
-        public IActionResult Configure(MailChimpModel model)
+        public async Task<IActionResult> Configure(ConfigurationModel model)
         {
             if (!ModelState.IsValid)
-                return Configure();
+                return await Configure();
 
             //load settings for a chosen store scope
             var storeId = GetActiveStoreScopeConfiguration(_storeService, _workContext);
             var mailChimpSettings = _settingService.LoadSetting<MailChimpSettings>(storeId);
 
             //update stores if the list was changed
-            if (model.ListId != null && !model.ListId.Equals("0") && !model.ListId.Equals(mailChimpSettings.ListId))
+            if (!string.IsNullOrEmpty(model.ListId) && !model.ListId.Equals(Guid.Empty.ToString()) && !model.ListId.Equals(mailChimpSettings.ListId))
             {
-                if (storeId > 0)
-                    _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Store, storeId, ActionType.Update);
-                else
-                    foreach (var store in _storeService.GetAllStores())
-                    {
-                        _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Store, store.Id, ActionType.Update);
-                    }
+                (storeId > 0 ? new[] { storeId } : _storeService.GetAllStores().Select(store => store.Id)).ToList()
+                    .ForEach(id => _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Store, id, OperationType.Update));
             }
 
-            //webhook
-            if (!string.IsNullOrEmpty(model.ListId))
+            //prepare webhook
+            if (!string.IsNullOrEmpty(mailChimpSettings.ApiKey))
             {
-                //delete current webhook
-                if (!model.ListId.Equals(mailChimpSettings.ListId))
-                {
-                    _mailChimpManager.DeleteWebhook(mailChimpSettings.ListId, mailChimpSettings.WebhookId);
-                    mailChimpSettings.WebhookId = string.Empty;
-                }
+                var listId = !string.IsNullOrEmpty(model.ListId) && !model.ListId.Equals(Guid.Empty.ToString()) ? model.ListId : string.Empty;
+                var webhookPrepared = await _mailChimpManager.PrepareWebhook(listId);
 
-                //and create new one
-                if (!model.ListId.Equals("0"))
-                {
-                    //we use Task.Run() because child actions cannot be run asynchronously
-                    mailChimpSettings.WebhookId = tasks.Task.Run(() => _mailChimpManager.CreateWebhook(model.ListId, mailChimpSettings.WebhookId)).Result;
-                    if (string.IsNullOrEmpty(mailChimpSettings.WebhookId))
-                        ErrorNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.WebhookError"));
-                }
+                //display warning if webhook is not prepared
+                if (!webhookPrepared && !string.IsNullOrEmpty(listId))
+                    WarningNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Webhook.Warning"));
             }
 
-            //settings
+            //save settings
             mailChimpSettings.ApiKey = model.ApiKey;
-            mailChimpSettings.UseEcommerceApi = model.UseEcommerceApi;
+            mailChimpSettings.PassEcommerceData = model.PassEcommerceData;
             mailChimpSettings.ListId = model.ListId;
-            _settingService.SaveSetting(mailChimpSettings, x => x.ApiKey, 0, false);
-            _settingService.SaveSetting(mailChimpSettings, x => x.UseEcommerceApi, 0, false);
+            _settingService.SaveSetting(mailChimpSettings, x => x.ApiKey, clearCache: false);
+            _settingService.SaveSetting(mailChimpSettings, x => x.PassEcommerceData, clearCache: false);
             _settingService.SaveSettingOverridablePerStore(mailChimpSettings, x => x.ListId, model.ListId_OverrideForStore, storeId, false);
-            _settingService.SaveSettingOverridablePerStore(mailChimpSettings, x => x.WebhookId, true, storeId, false);
-
-            //now clear settings cache
             _settingService.ClearCache();
 
             //create or update synchronization task
-            var task = FindScheduledTask();
-            if (task != null)
+            var task = _scheduleTaskService.GetTaskByType(MailChimpDefaults.SynchronizationTask);
+            if (task == null)
             {
-                //task parameters was changed
-                if (task.Enabled != model.AutoSync || task.Seconds != model.AutoSyncEachMinutes * 60)
+                task = new ScheduleTask
                 {
-                    task.Enabled = model.AutoSync;
-                    task.Seconds = model.AutoSyncEachMinutes * 60;
-                    _scheduleTaskService.UpdateTask(task);
-                    SuccessNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.AutoSyncRestart"));
-                }
-                else
-                    SuccessNotification(_localizationService.GetResource("Admin.Plugins.Saved"));
-            }
-            else
-            {
-                _scheduleTaskService.InsertTask(new ScheduleTask
-                {
-                    Name = "MailChimp synchronization",
-                    Seconds = model.AutoSyncEachMinutes * 60,
-                    Enabled = model.AutoSync,
-                    Type = "Nop.Plugin.Misc.MailChimp.Services.MailChimpSynchronizationTask, Nop.Plugin.Misc.MailChimp",
-                });
-                SuccessNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.AutoSyncRestart"));
+                    Type = MailChimpDefaults.SynchronizationTask,
+                    Name = MailChimpDefaults.SynchronizationTaskName,
+                    Seconds = MailChimpDefaults.DefaultSynchronizationPeriod * 60 * 60
+                };
+                _scheduleTaskService.InsertTask(task);
             }
 
-            return Configure();
+            var synchronizationPeriodInSeconds = model.SynchronizationPeriod * 60 * 60;
+            var synchronizationEnabled = model.AutoSynchronization;
+            if (task.Enabled != synchronizationEnabled || task.Seconds != synchronizationPeriodInSeconds)
+            {
+                //task parameters was changed
+                task.Enabled = synchronizationEnabled;
+                task.Seconds = synchronizationPeriodInSeconds;
+                _scheduleTaskService.UpdateTask(task);
+                WarningNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Fields.AutoSynchronization.Restart"));
+            }
+
+            SuccessNotification(_localizationService.GetResource("Admin.Plugins.Saved"));
+
+            return await Configure();
         }
 
         [HttpPost, ActionName("Configure")]
         [FormValueRequired("synchronization")]
+        [AdminAntiForgery]
         [AuthorizeAdmin]
         [Area(AreaNames.Admin)]
-        public IActionResult Synchronization(MailChimpModel model)
+        public async Task<IActionResult> Synchronization()
         {
-            if (!ModelState.IsValid)
-                return Configure();
-
-            if (string.IsNullOrEmpty(model.ListId) || model.ListId.Equals("0"))
+            //ensure that user list for the synchronization is selected
+            var mailChimpSettings = _settingService.LoadSetting<MailChimpSettings>();
+            if (string.IsNullOrEmpty(mailChimpSettings.ListId) || mailChimpSettings.ListId.Equals(Guid.Empty.ToString()))
             {
-                ErrorNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.SynchronizationError"));
-                return Configure();
+                ErrorNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Error"));
+                return await Configure();
             }
 
-            //we use Task.Run() because child actions cannot be run asynchronously
-            var batchId = tasks.Task.Run(() => _mailChimpManager.Synchronize()).Result;
-
-            if (!string.IsNullOrEmpty(batchId))
+            //start the synchronization
+            var synchronizationStarted = await _mailChimpManager.Synchronize(true);
+            if (synchronizationStarted)
             {
-                HttpContext.Session.Set("synchronization", true);
-                HttpContext.Session.Set("batchId", batchId);
+                _cacheManager.Set(MailChimpDefaults.SynchronizationStatusCacheKey, SynchronizationStatus.Started, 60);
+                SuccessNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Started"));
             }
             else
-                ErrorNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.SynchronizationError"));
+                ErrorNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Error"));
 
-            return Configure();
+            return await Configure();
         }
 
-        public JsonResult GetSynchronizationInfo()
+        [AuthorizeAdmin]
+        [Area(AreaNames.Admin)]
+        public IActionResult IsSynchronizationComplete()
         {
-            if (HttpContext.Session.GetString("batchId") == null)
+            //check whether the synchronization is finished
+            var synchronizationStatus = _cacheManager.Get<SynchronizationStatus?>(MailChimpDefaults.SynchronizationStatusCacheKey);
+            if (synchronizationStatus == SynchronizationStatus.Finished)
             {
-                HttpContext.Session.Remove("synchronization");
-                return Json(new {completed = true, info = string.Empty}); 
+                _cacheManager.Remove(MailChimpDefaults.SynchronizationStatusCacheKey);
+                return Json(true);
             }
 
-            var batchInfo = tasks.Task.Run(() => _mailChimpManager.GetBatchInfo(HttpContext.Session.GetString("batchId"))).Result;
+            return new NullJsonResult();
+        }
 
-            //batch completed 
-            if (batchInfo.Item1)
+        public IActionResult BatchWebhook()
+        {
+            return Ok();
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> BatchWebhook(IFormCollection form)
+        {
+            if (!this.Request.Form?.Any() ?? true)
+                return BadRequest();
+
+            //handle batch webhook
+            var success = await _mailChimpManager.HandleBatchWebhook(this.Request.Form);
+            if (success)
             {
-                HttpContext.Session.Remove("batchId");
-                HttpContext.Session.Remove("synchronization");
+                _cacheManager.Set(MailChimpDefaults.SynchronizationStatusCacheKey, SynchronizationStatus.Finished, 60);
+                return Ok();
             }
 
-            return Json(new { completed = batchInfo.Item1, info = batchInfo.Item2 });
+            return BadRequest();
         }
 
         public IActionResult WebHook()
         {
-            if (Request.Form.Count > 0)
-                _mailChimpManager.WebhookHandler(Request.Form);
+            return Ok();
+        }
 
-            return new StatusCodeResult((int)HttpStatusCode.OK);
+        [HttpPost]
+        public async Task<IActionResult> WebHook(IFormCollection form)
+        {
+            if (!this.Request.Form?.Any() ?? true)
+                return BadRequest();
+
+            //handle webhook
+            var success = await _mailChimpManager.HandleWebhook(this.Request.Form);
+            if (success)
+                return Ok();
+
+            return BadRequest();
         }
 
         #endregion

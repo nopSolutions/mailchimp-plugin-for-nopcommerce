@@ -1,43 +1,51 @@
-﻿@{
+﻿@model Nop.Plugin.Misc.MailChimp.Models.ConfigurationModel
+@{
     Layout = "_ConfigurePlugin";
 }
-@using Microsoft.AspNetCore.Http
-@model Nop.Plugin.Misc.MailChimp.Models.MailChimpModel
 
 @await Component.InvokeAsync("StoreScopeConfiguration")
+
+<script type="text/javascript">
+    $(document).ready(function () {
+        $('#@Html.IdFor(model => model.AutoSynchronization)').click(toggleAutoSync);
+        toggleAutoSync();
+    });
+
+    function toggleAutoSync() {
+        if ($('#@Html.IdFor(model => model.AutoSynchronization)').is(':checked')) {
+            $('#groupSynchronizationPeriod').show();
+        }
+        else {
+            $('#groupSynchronizationPeriod').hide();
+        }
+    };
+</script>
 
 <form asp-controller="MailChimp" asp-action="Configure" method="post">
     <div class="panel-group">
         <div class="panel panel-default">
-
-            <script type="text/javascript">
-                $(document).ready(function () {
-                    $("#@Html.IdFor(model => model.AutoSync)").click(toggleAutoSync);
-                    toggleAutoSync();
-                });
-
-                function toggleAutoSync() {
-                    if ($('#@Html.IdFor(model => model.AutoSync)').is(':checked')) {
-                        $('#pnlAutoSyncEachMinutes').show();
-                    }
-                    else {
-                        $('#pnlAutoSyncEachMinutes').hide();
-                    }
-                };
-            </script>
-
             <div class="panel-body">
                 <p>
-                    To configure this plugin simply enter your MailChimp API key and select list of the synchronization.<br />
-                    Details about the feature MailChimp Ecommerce you can find on
-                    <a href="http://kb.mailchimp.com/integrations/e-commerce/how-to-use-mailchimp-for-e-commerce" target="_blank">this page</a><br />
+                    For plugin configuration follow these steps:<br />
+                    <br />
+                    1. Sign up for a <a href="https://login.mailchimp.com/signup/" target="_blank"> MailChimp account</a>.<br />
+                    2. Log in at the MailChimp service.<br />
+                    3. Go to 'Lists' page. Create a contact list with which newsletter subscribers of your store will be synchronized.<br />
+                    4. Find 'API Keys' page by going Profile -> Extras -> API keys.<br />
+                    5. Create a new key and copy it into the form below.<br />
+                    6. Save.<br />
+                    7. Choose one of the previously created contact lists.<br />
+                    8. Check "Pass E-Commerce data" to be able to use MailChimp E-Commerce features. 
+                        In this case information about the store, customers, products and orders will be passed to MailChimp. 
+                        More information on how to use this data can be found <a href="https://kb.mailchimp.com/integrations/e-commerce/sell-more-stuff-with-mailchimp" target="_blank">here</a>.<br />
+                    9. Fill in the remaining fields and save to complete the configuration.<br />
                 </p>
                 <div class="form-group">
                     <div class="col-md-3">
                         <nop-label asp-for="ApiKey" />
                     </div>
                     <div class="col-md-9">
-                        <nop-editor asp-for="ApiKey" />
+                        <nop-editor asp-for="ApiKey" asp-required="true" />
                         <span asp-validation-for="ApiKey"></span>
                     </div>
                 </div>
@@ -47,41 +55,14 @@
                         <div class="col-md-3">
                             <nop-label asp-for="AccountInfo" />
                         </div>
-                        <div class="col-md-9" style="white-space: pre-line">
-                            @Html.Raw(Model.AccountInfo)
+                        <div class="col-md-9">
+                            <div class="form-text-row" style="white-space: pre-line">@Model.AccountInfo</div>
                         </div>
                     </div>
                 }
                 <div class="form-group">
                     <div class="col-md-3">
-                        <nop-label asp-for="UseEcommerceApi" />
-                    </div>
-                    <div class="col-md-9">
-                        <nop-editor asp-for="UseEcommerceApi" />
-                        <span asp-validation-for="UseEcommerceApi"></span>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <div class="col-md-3">
-                        <nop-label asp-for="AutoSync" />
-                    </div>
-                    <div class="col-md-9">
-                        <nop-editor asp-for="AutoSync" />
-                        <span asp-validation-for="AutoSync"></span>
-                    </div>
-                </div>
-                <div class="form-group" id="pnlAutoSyncEachMinutes">
-                    <div class="col-md-3">
-                        <nop-label asp-for="AutoSyncEachMinutes" />
-                    </div>
-                    <div class="col-md-9">
-                        <nop-editor asp-for="AutoSyncEachMinutes" />
-                        <span asp-validation-for="AutoSyncEachMinutes"></span>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <div class="col-md-3">
-                        <nop-override-store-checkbox asp-for="ListId_OverrideForStore" asp-input="ListId" asp-store-scope="Model.ActiveStoreScopeConfiguration"/>
+                        <nop-override-store-checkbox asp-for="ListId_OverrideForStore" asp-input="ListId" asp-store-scope="Model.ActiveStoreScopeConfiguration" />
                         <nop-label asp-for="ListId" />
                     </div>
                     <div class="col-md-9">
@@ -90,6 +71,35 @@
                     </div>
                 </div>
                 <div class="form-group">
+                    <div class="col-md-3">
+                        <nop-label asp-for="PassEcommerceData" />
+                    </div>
+                    <div class="col-md-9">
+                        <nop-editor asp-for="PassEcommerceData" />
+                        <span asp-validation-for="PassEcommerceData"></span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="col-md-3">
+                        <nop-label asp-for="AutoSynchronization" />
+                    </div>
+                    <div class="col-md-9">
+                        <nop-editor asp-for="AutoSynchronization" />
+                        <span asp-validation-for="AutoSynchronization"></span>
+                    </div>
+                </div>
+                <nop-nested-setting asp-for="AutoSynchronization">
+                    <div class="form-group" id="groupSynchronizationPeriod">
+                        <div class="col-md-3">
+                            <nop-label asp-for="SynchronizationPeriod" />
+                        </div>
+                        <div class="col-md-9">
+                            <nop-editor asp-for="SynchronizationPeriod" asp-postfix="Hours" />
+                            <span asp-validation-for="SynchronizationPeriod"></span>
+                        </div>
+                    </div>
+                </nop-nested-setting>
+                <div class="form-group">
                     <div class="col-md-9 col-md-offset-3">
                         <input type="submit" name="save" class="btn btn-primary" value="@T("Admin.Common.Save")" />
                     </div>
@@ -97,42 +107,50 @@
             </div>
         </div>
 
-        @if (!string.IsNullOrEmpty(Model.ApiKey))
-        {
-            <div class="panel panel-default">
+    @if (!string.IsNullOrEmpty(Model.ApiKey))
+    {         
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                @T("Plugins.Misc.MailChimp.ManualSynchronization.Hint")
+            </div>
+            <div class="panel-body">
+                <p>
+                    You can synchronize the data of your store with MailChimp manually. 
+                    In this case existing data in MailChimp will be deleted first and then passed again completely, unlike auto synchronization when only the updated data is passed.
+                    You can use manual synchronization as the first one or, in case of there are any errors in auto synchronization and you want to reset all data.<br />
+                    <em>Note that it may take a long time.</em><br />
+                </p>
+                <div id="progressBar"></div>
+            </div>
+            <div class="panel-footer">
+                <input type="submit" name="synchronization" class="btn btn-primary" value="@T("Plugins.Misc.MailChimp.ManualSynchronization")" />
+            </div>
+        </div>
 
-                <script type="text/javascript">
-                    $(document).ready(function () {
-                        if (@(Context.Session.GetString("synchronization")?.ToLower())) {
-                            $('#synchronizationInfo').text('@T("Plugins.Misc.MailChimp.SynchronizationStart")');
+@if (Model.SynchronizationStarted)
+{
+    <text>
+        <script type="text/javascript">
+            $(document).ready(function () {
+                $('#progressBar').kendoProgressBar({ value: false, type: 'value' }).data('kendoProgressBar');
+                refresh();
+            });
+
+            function refresh(){
+                setTimeout(function() {
+                    $.get('@(Url.Action("IsSynchronizationComplete"))', function(data) {
+                        if (data) {
+                            window.location = window.location.href;
+                        }
+                        else {
                             refresh();
                         }
                     });
-
-                    function refresh(){
-                        setTimeout(function() {
-                            $.get('@(Url.Action("GetSynchronizationInfo", "MailChimp"))', function(data) {
-                                $('#synchronizationInfo').text(data.info);
-                                if (!data.completed) {
-                                    refresh();
-                                }
-                            });
-                        }, 6000);
-                    };
-                </script>
-
-                <div class="panel-heading">
-                    @T("Plugins.Misc.MailChimp.ManualSync.Hint")
-                </div>
-                <div class="panel-body">
-                    <div id="synchronizationInfo" style="white-space: pre-line"></div>
-                </div>
-                <div class="panel-footer">
-                    <button type="submit" name="synchronization" class="btn bg-primary">
-                        @T("Plugins.Misc.MailChimp.ManualSync")
-                    </button>
-                </div>
-            </div>
-        }
+                }, 5000);
+            }
+        </script>
+    </text>
+}
+    }
     </div>
 </form>

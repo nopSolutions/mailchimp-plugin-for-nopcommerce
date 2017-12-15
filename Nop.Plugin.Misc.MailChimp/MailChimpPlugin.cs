@@ -1,4 +1,5 @@
-﻿using Nop.Core;
+﻿using System;
+using Nop.Core;
 using Nop.Core.Domain.Tasks;
 using Nop.Core.Plugins;
 using Nop.Plugin.Misc.MailChimp.Data;
@@ -12,7 +13,7 @@ using Nop.Services.Tasks;
 namespace Nop.Plugin.Misc.MailChimp
 {
     /// <summary>
-    /// Represents the MailChimp plugin
+    /// Represents the MailChimp plugin 
     /// </summary>
     public class MailChimpPlugin : BasePlugin, IMiscPlugin
     {
@@ -21,9 +22,9 @@ namespace Nop.Plugin.Misc.MailChimp
         private readonly IScheduleTaskService _scheduleTaskService;
         private readonly ISettingService _settingService;
         private readonly IStoreService _storeService;
+        private readonly IWebHelper _webHelper;
         private readonly MailChimpManager _mailChimpManager;
         private readonly MailChimpObjectContext _mailChimpObjectContext;
-        private readonly IWebHelper _webHelper;
 
         #endregion
 
@@ -32,16 +33,16 @@ namespace Nop.Plugin.Misc.MailChimp
         public MailChimpPlugin(IScheduleTaskService scheduleTaskService,
             ISettingService settingService,
             IStoreService storeService,
+            IWebHelper webHelper,
             MailChimpManager mailChimpManager,
-            MailChimpObjectContext mailChimpObjectContext,
-            IWebHelper webHelper)
+            MailChimpObjectContext mailChimpObjectContext)
         {
             this._scheduleTaskService = scheduleTaskService;
             this._settingService = settingService;
             this._storeService = storeService;
+            this._webHelper = webHelper;
             this._mailChimpManager = mailChimpManager;
             this._mailChimpObjectContext = mailChimpObjectContext;
-            this._webHelper = webHelper;
         }
 
         #endregion
@@ -49,12 +50,11 @@ namespace Nop.Plugin.Misc.MailChimp
         #region Methods
 
         /// <summary>
-        /// Synchronize nopCommerce data with MailChimp
+        /// Gets a configuration page URL
         /// </summary>
-        public void Synchronize()
+        public override string GetConfigurationPageUrl()
         {
-            //we try to get a result, otherwise scheduled task does not start manually
-            var unused = System.Threading.Tasks.Task.Run(() => _mailChimpManager.Synchronize()).Result;
+            return $"{_webHelper.GetStoreLocation()}Admin/MailChimp/Configure";
         }
 
         /// <summary>
@@ -63,43 +63,49 @@ namespace Nop.Plugin.Misc.MailChimp
         public override void Install()
         {
             //settings
-            _settingService.SaveSetting(new MailChimpSettings());
+            _settingService.SaveSetting(new MailChimpSettings
+            {
+                ListId = Guid.Empty.ToString(),
+                StoreIdMask = MailChimpDefaults.DefaultStoreIdMask
+            });
 
-            //install synchronization task
-            if (_scheduleTaskService.GetTaskByType("Nop.Plugin.Misc.MailChimp.Services.MailChimpSynchronizationTask, Nop.Plugin.Misc.MailChimp") == null)
+            //synchronization task
+            if (_scheduleTaskService.GetTaskByType(MailChimpDefaults.SynchronizationTask) == null)
             {
                 _scheduleTaskService.InsertTask(new ScheduleTask
                 {
-                    Name = "MailChimp synchronization",
-                    Seconds = 21600,
-                    Type = "Nop.Plugin.Misc.MailChimp.Services.MailChimpSynchronizationTask, Nop.Plugin.Misc.MailChimp",
+                    Type = MailChimpDefaults.SynchronizationTask,
+                    Name = MailChimpDefaults.SynchronizationTaskName,
+                    Seconds = MailChimpDefaults.DefaultSynchronizationPeriod * 60 * 60
                 });
             }
 
             //database objects
             _mailChimpObjectContext.Install();
 
-            //data for the first synchronization
-            _mailChimpManager.CreateInitiateData();
+            //initial data for the synchronization
+            _mailChimpManager.CreateInitialData();
 
             //locales
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.AccountInfo", "Account information");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.AutoSyncRestart", "Task parameters has been changed, please restart the application");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.ManualSync", "Synchronize");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.ManualSync.Hint", "Manual synchronization");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AccountInfo", "Account information");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AccountInfo.Hint", "Display MailChimp account information.");
             this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.ApiKey", "API key");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.ApiKey.Hint", "Input your MailChimp account API key.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AutoSync", "Auto synchronization");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AutoSync.Hint", "Use auto synchronization task.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AutoSyncEachMinutes", "Period (minutes)");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AutoSyncEachMinutes.Hint", "Input auto synchronization task period (minutes).");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.ApiKey.Hint", "Enter your MailChimp account API key.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AutoSynchronization", "Use auto synchronization");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AutoSynchronization.Hint", "Determine whether to use auto synchronization.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AutoSynchronization.Restart", "Auto synchronization parameters has been changed, please restart the application");
             this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.List", "List");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.List.Hint", "Choose list of contacts for the synchronization.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.UseEcommerceApi", "Use MailChimp for E-Commerce");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.UseEcommerceApi.Hint", "Check for using MailChimp for E-Commerce.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.SynchronizationError", "Error on synchronization start");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.SynchronizationStart", "Synchronization is in process");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.WebhookError", "Webhook was not created (you'll not be able to get users who unsubscribed from MailChimp)");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.List.Hint", "Choose list of users for the synchronization.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.List.NotExist", "There are no lists");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.PassEcommerceData", "Pass E-Commerce data");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.PassEcommerceData.Hint", "Determine whether to pass E-Commerce data (customers, products, orders, etc).");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.SynchronizationPeriod", "Synchronization period");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.SynchronizationPeriod.Hint", "Specify the synchronization period in hours.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.ManualSynchronization", "Synchronize");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.ManualSynchronization.Hint", "Manually synchronize");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Synchronization.Error", "An error occurred during synchronization with MailChimp");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Synchronization.Started", "Synchronization is in progress");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Webhook.Warning", "Webhook was not created (you'll not be able to get unsubscribed users)");
 
             base.Install();
         }
@@ -109,50 +115,43 @@ namespace Nop.Plugin.Misc.MailChimp
         /// </summary>
         public override void Uninstall()
         {
-            //delete webhooks
-            foreach (var store in _storeService.GetAllStores())
-            {
-                var currentSettings = _settingService.LoadSetting<MailChimpSettings>(store.Id);
-                if (!string.IsNullOrEmpty(currentSettings.ListId) && !string.IsNullOrEmpty(currentSettings.WebhookId))
-                    _mailChimpManager.DeleteWebhook(currentSettings.ListId, currentSettings.WebhookId);
-            }
-
-            //settings
-            _settingService.DeleteSetting<MailChimpSettings>();
-
-            //remove scheduled task
-            var task = _scheduleTaskService.GetTaskByType("Nop.Plugin.Misc.MailChimp.Services.MailChimpSynchronizationTask, Nop.Plugin.Misc.MailChimp");
-            if (task != null)
-                _scheduleTaskService.DeleteTask(task);
+            //webhooks
+            _mailChimpManager.DeleteBatchWebhook().Wait();
+            _mailChimpManager.DeleteWebhooks().Wait();
 
             //database objects
             _mailChimpObjectContext.Uninstall();
 
+            //synchronization task
+            var task = _scheduleTaskService.GetTaskByType(MailChimpDefaults.SynchronizationTask);
+            if (task != null)
+                _scheduleTaskService.DeleteTask(task);
+
+            //settings
+            _settingService.DeleteSetting<MailChimpSettings>();
+
             //locales
-            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.AccountInfo");
-            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.AutoSyncRestart");
-            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.ManualSync");
-            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.ManualSync.Hint");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AccountInfo");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AccountInfo.Hint");
             this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.ApiKey");
             this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.ApiKey.Hint");
-            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AutoSync");
-            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AutoSync.Hint");
-            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AutoSyncEachMinutes");
-            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AutoSyncEachMinutes.Hint");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AutoSynchronization");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AutoSynchronization.Hint");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AutoSynchronization.Restart");
             this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.List");
             this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.List.Hint");
-            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.UseEcommerceApi");
-            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.UseEcommerceApi.Hint");
-            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.SynchronizationError");
-            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.SynchronizationStart");
-            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.WebhookError");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.List.NotExist");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.PassEcommerceData");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.PassEcommerceData.Hint");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.SynchronizationPeriod");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Fields.SynchronizationPeriod.Hint");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.ManualSynchronization");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.ManualSynchronization.Hint");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Synchronization.Error");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Synchronization.Started");
+            this.DeletePluginLocaleResource("Plugins.Misc.MailChimp.Webhook.Warning");
 
             base.Uninstall();
-        }
-
-        public override string GetConfigurationPageUrl()
-        {
-            return $"{_webHelper.GetStoreLocation()}Admin/MailChimp/Configure";
         }
 
         #endregion

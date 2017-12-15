@@ -2,6 +2,9 @@
 
 namespace Nop.Plugin.Misc.MailChimp
 {
+    /// <summary>
+    /// Represents MailChimp plugin settings
+    /// </summary>
     public class MailChimpSettings : ISettings
     {
         /// <summary>
@@ -10,18 +13,18 @@ namespace Nop.Plugin.Misc.MailChimp
         public string ApiKey { get; set; }
 
         /// <summary>
-        /// Gets or sets value indicating whether to use MailChimp E-Commerce API
+        /// Gets or sets value indicating whether to pass E-Commerce data (customers, products, orders, etc) to MailChimp
         /// </summary>
-        public bool UseEcommerceApi { get; set; }
+        public bool PassEcommerceData { get; set; }
 
         /// <summary>
-        /// Gets or sets list identifier of contacts
+        /// Gets or sets identifier of user list
         /// </summary>
         public string ListId { get; set; }
 
         /// <summary>
-        /// Gets or sets webhook identifier 
+        /// Gets or sets mask of store identifier that uniquely identifying the store in MailChimp E-Commerce
         /// </summary>
-        public string WebhookId { get; set; }
+        public string StoreIdMask { get; set; }
     }
 }

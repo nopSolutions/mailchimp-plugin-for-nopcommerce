@@ -9,34 +9,15 @@ using Nop.Plugin.Misc.MailChimp.Domain;
 namespace Nop.Plugin.Misc.MailChimp.Data
 {
     /// <summary>
-    /// MailChimp object context
+    /// Represents object context of MailChimp plugin
     /// </summary>
     public class MailChimpObjectContext : DbContext, IDbContext
     {
         #region Ctor
 
-        public MailChimpObjectContext(string nameOrConnectionString) : base(nameOrConnectionString) { }
-
-        #endregion
-
-        #region Properties
-
-        /// <summary>
-        /// Gets or sets a value indicating whether proxy creation setting is enabled (used in EF)
-        /// </summary>
-        public virtual bool ProxyCreationEnabled
+        public MailChimpObjectContext(string nameOrConnectionString)
+            : base(nameOrConnectionString)
         {
-            get { return Configuration.ProxyCreationEnabled; }
-            set { Configuration.ProxyCreationEnabled = value; }
-        }
-
-        /// <summary>
-        /// Gets or sets a value indicating whether auto detect changes setting is enabled (used in EF)
-        /// </summary>
-        public virtual bool AutoDetectChangesEnabled
-        {
-            get { return Configuration.AutoDetectChangesEnabled; }
-            set { Configuration.AutoDetectChangesEnabled = value; }
         }
 
         #endregion
@@ -53,6 +34,7 @@ namespace Nop.Plugin.Misc.MailChimp.Data
 
             //disable EdmMetadata generation
             //modelBuilder.Conventions.Remove<IncludeMetadataConvention>();
+
             base.OnModelCreating(modelBuilder);
         }
 
@@ -145,6 +127,28 @@ namespace Nop.Plugin.Misc.MailChimp.Data
                 throw new ArgumentNullException(nameof(entity));
 
             ((IObjectContextAdapter)this).ObjectContext.Detach(entity);
+        }
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        /// Gets or sets a value indicating whether proxy creation setting is enabled (used in EF)
+        /// </summary>
+        public virtual bool ProxyCreationEnabled
+        {
+            get { return Configuration.ProxyCreationEnabled; }
+            set { Configuration.ProxyCreationEnabled = value; }
+        }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether auto detect changes setting is enabled (used in EF)
+        /// </summary>
+        public virtual bool AutoDetectChangesEnabled
+        {
+            get { return Configuration.AutoDetectChangesEnabled; }
+            set { Configuration.AutoDetectChangesEnabled = value; }
         }
 
         #endregion
