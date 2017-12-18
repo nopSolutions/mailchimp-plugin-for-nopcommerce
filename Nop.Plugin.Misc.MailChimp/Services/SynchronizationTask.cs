@@ -44,7 +44,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 return;
 
             //start the synchronization
-            var synchronizationStarted = _mailChimpManager.Synchronize().Result;
+            var synchronizationStarted = _mailChimpManager.Synchronize().Result.HasValue;
             if (!synchronizationStarted)
                 throw new NopException(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Error"));
         }

@@ -80,9 +80,8 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
                 ActiveStoreScopeConfiguration = storeId
             };
 
-            //check whether synchronization was started
-            var synchronizationStatus = _cacheManager.Get<SynchronizationStatus?>(MailChimpDefaults.SynchronizationStatusCacheKey);
-            model.SynchronizationStarted = synchronizationStatus == SynchronizationStatus.Started;
+            //check whether synchronization is in progress
+            model.SynchronizationStarted = _cacheManager.Get<int?>(MailChimpDefaults.OperationNumberCacheKey).HasValue;
 
             //prepare account info
             if (!string.IsNullOrEmpty(mailChimpSettings.ApiKey))
@@ -208,10 +207,13 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
             }
 
             //start the synchronization
-            var synchronizationStarted = await _mailChimpManager.Synchronize(true);
-            if (synchronizationStarted)
+            var operationNumber = await _mailChimpManager.Synchronize(true);
+            if (operationNumber.HasValue)
             {
-                _cacheManager.Set(MailChimpDefaults.SynchronizationStatusCacheKey, SynchronizationStatus.Started, 60);
+                //cache number of operations
+                _cacheManager.Remove(MailChimpDefaults.SynchronizationBatchesCacheKey);
+                _cacheManager.Set(MailChimpDefaults.OperationNumberCacheKey, operationNumber.Value, 60);
+
                 SuccessNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Started"));
             }
             else
@@ -224,11 +226,18 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         [Area(AreaNames.Admin)]
         public IActionResult IsSynchronizationComplete()
         {
+            //try to get number of operations and already handled batches
+            var operationNumber = _cacheManager.Get<int?>(MailChimpDefaults.OperationNumberCacheKey);
+            var batchesInfo = _cacheManager.Get<Dictionary<string, int>>(MailChimpDefaults.SynchronizationBatchesCacheKey) 
+                ?? new Dictionary<string, int>();
+
             //check whether the synchronization is finished
-            var synchronizationStatus = _cacheManager.Get<SynchronizationStatus?>(MailChimpDefaults.SynchronizationStatusCacheKey);
-            if (synchronizationStatus == SynchronizationStatus.Finished)
+            if (!operationNumber.HasValue || operationNumber.Value == batchesInfo.Values.Sum())
             {
-                _cacheManager.Remove(MailChimpDefaults.SynchronizationStatusCacheKey);
+                //clear cached values
+                _cacheManager.Remove(MailChimpDefaults.OperationNumberCacheKey);
+                _cacheManager.Remove(MailChimpDefaults.SynchronizationBatchesCacheKey);
+
                 return Json(true);
             }
 
@@ -246,11 +255,20 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
             if (!this.Request.Form?.Any() ?? true)
                 return BadRequest();
 
+            //try to get already handled batches
+            var batchesInfo = _cacheManager.Get<Dictionary<string, int>>(MailChimpDefaults.SynchronizationBatchesCacheKey)
+                ?? new Dictionary<string, int>();
+
             //handle batch webhook
-            var success = await _mailChimpManager.HandleBatchWebhook(this.Request.Form);
-            if (success)
+            var batchInfo = await _mailChimpManager.HandleBatchWebhook(this.Request.Form, batchesInfo);
+            if (!string.IsNullOrEmpty(batchInfo.Id) && batchInfo.CompletedOperationNumber.HasValue)
             {
-                _cacheManager.Set(MailChimpDefaults.SynchronizationStatusCacheKey, SynchronizationStatus.Finished, 60);
+                if (!batchesInfo.ContainsKey(batchInfo.Id))
+                {
+                    //update cached value
+                    batchesInfo.Add(batchInfo.Id, batchInfo.CompletedOperationNumber.Value);
+                    _cacheManager.Set(MailChimpDefaults.SynchronizationBatchesCacheKey, batchesInfo, 60);
+                }
                 return Ok();
             }
 

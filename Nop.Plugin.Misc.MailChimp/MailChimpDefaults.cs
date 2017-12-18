@@ -17,9 +17,14 @@ namespace Nop.Plugin.Misc.MailChimp
         public static string ObjectContextName => "nop_object_context_misc_mailchimp";
 
         /// <summary>
-        /// Cache key to store the synchronization status
+        /// Cache key to store the operation number of a synchronization
         /// </summary>
-        public static string SynchronizationStatusCacheKey => "MailChimp-synchronization-status";
+        public static string OperationNumberCacheKey => "MailChimp-synchronization-operations";
+
+        /// <summary>
+        /// Cache key to store handled batches of a synchronization
+        /// </summary>
+        public static string SynchronizationBatchesCacheKey => "MailChimp-synchronization-batches";
 
         /// <summary>
         /// Default mask of store identifier that uniquely identifying the store in MailChimp E-Commerce
@@ -129,5 +134,10 @@ namespace Nop.Plugin.Misc.MailChimp
         /// Default synchronization period in hours
         /// </summary>
         public static int DefaultSynchronizationPeriod => 6;
+
+        /// <summary>
+        /// Default batch operation number
+        /// </summary>
+        public static int DefaultBatchOperationNumber => 2000;
     }
 }

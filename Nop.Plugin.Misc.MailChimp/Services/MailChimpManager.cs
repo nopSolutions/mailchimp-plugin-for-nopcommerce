@@ -187,30 +187,102 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         {
             return await HandleRequest(async () =>
             {
-                //get store identifiers
-                var allStoresIds = _storeService.GetAllStores().Select(store => string.Format(_mailChimpSettings.StoreIdMask, store.Id));
-
-                //get number of stores
-                var storeNumber = (await _mailChimpManager.ECommerceStores.GetResponseAsync())?.TotalItems
-                    ?? throw new NopException("No response from the service");
-
-                //delete all existing E-Commerce data from MailChimp
-                var existingStoresIds = await _mailChimpManager.ECommerceStores
-                    .GetAllAsync(new QueryableBaseRequest { FieldsToInclude = "stores.id", Limit = storeNumber })
-                    ?? throw new NopException("No response from the service");
-                foreach (var storeId in existingStoresIds.Select(store => store.Id).Intersect(allStoresIds))
+                //whether to clear existing E-Commerce data
+                if (_mailChimpSettings.PassEcommerceData)
                 {
-                    await _mailChimpManager.ECommerceStores.DeleteAsync(storeId);
-                }
+                    //get store identifiers
+                    var allStoresIds = _storeService.GetAllStores().Select(store => string.Format(_mailChimpSettings.StoreIdMask, store.Id));
 
-                //clear records
-                _synchronizationRecordService.ClearRecords();
+                    //get number of stores
+                    var storeNumber = (await _mailChimpManager.ECommerceStores.GetResponseAsync())?.TotalItems
+                        ?? throw new NopException("No response from the service");
+
+                    //delete all existing E-Commerce data from MailChimp
+                    var existingStoresIds = await _mailChimpManager.ECommerceStores
+                        .GetAllAsync(new QueryableBaseRequest { FieldsToInclude = "stores.id", Limit = storeNumber })
+                        ?? throw new NopException("No response from the service");
+                    foreach (var storeId in existingStoresIds.Select(store => store.Id).Intersect(allStoresIds))
+                    {
+                        await _mailChimpManager.ECommerceStores.DeleteAsync(storeId);
+                    }
+
+                    //clear records
+                    _synchronizationRecordService.ClearRecords();
+
+                }
+                else
+                    _synchronizationRecordService.DeleteRecordsByEntityType(EntityType.Subscription);
 
                 //and create initial data
                 CreateInitialData();
 
                 return true;
             });
+        }
+
+        /// <summary>
+        /// Create data for the manual synchronization
+        /// </summary>
+        private void CreateInitialData()
+        {
+            //add all subscriptions
+            foreach (var subscription in _newsLetterSubscriptionService.GetAllNewsLetterSubscriptions())
+            {
+                _synchronizationRecordService.InsertRecord(new MailChimpSynchronizationRecord
+                {
+                    EntityType = EntityType.Subscription,
+                    EntityId = subscription.Id,
+                    OperationType = OperationType.Create
+                });
+            }
+
+            //check whether to pass E-Commerce data
+            if (!_mailChimpSettings.PassEcommerceData)
+                return;
+
+            //add stores
+            foreach (var store in _storeService.GetAllStores())
+            {
+                _synchronizationRecordService.InsertRecord(new MailChimpSynchronizationRecord
+                {
+                    EntityType = EntityType.Store,
+                    EntityId = store.Id,
+                    OperationType = OperationType.Create
+                });
+            }
+
+            //add registered customers
+            foreach (var customer in _customerService.GetAllCustomers().Where(customer => !customer.IsGuest()))
+            {
+                _synchronizationRecordService.InsertRecord(new MailChimpSynchronizationRecord
+                {
+                    EntityType = EntityType.Customer,
+                    EntityId = customer.Id,
+                    OperationType = OperationType.Create
+                });
+            }
+
+            //add products
+            foreach (var product in _productService.SearchProducts())
+            {
+                _synchronizationRecordService.InsertRecord(new MailChimpSynchronizationRecord
+                {
+                    EntityType = EntityType.Product,
+                    EntityId = product.Id,
+                    OperationType = OperationType.Create
+                });
+            }
+
+            //add orders
+            foreach (var order in _orderService.SearchOrders())
+            {
+                _synchronizationRecordService.InsertRecord(new MailChimpSynchronizationRecord
+                {
+                    EntityType = EntityType.Order,
+                    EntityId = order.Id,
+                    OperationType = OperationType.Create
+                });
+            }
         }
 
         /// <summary>
@@ -298,10 +370,10 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Log result of the synchronization
         /// </summary>
         /// <param name="batchId">Batch identifier</param>
-        /// <returns>The asynchronous task whose result determines whether the results successfully logged</returns>
-        private async Task<bool> LogSynchronizationResult(string batchId)
+        /// <returns>The asynchronous task whose result contains number of completed operations</returns>
+        private async Task<int?> LogSynchronizationResult(string batchId)
         {
-            return await HandleRequest(async () =>
+            return await HandleRequest<int?>(async () =>
             {
                 //try to get finished batch of operations
                 var batch = await _mailChimpManager.Batches.GetBatchStatus(batchId)
@@ -309,7 +381,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
 
                 var completeStatus = "finished";
                 if (!batch?.Status?.Equals(completeStatus) ?? true)
-                    return false;
+                    return null;
 
                 var operationResults = new List<OperationResult>();
                 if (!string.IsNullOrEmpty(batch.ResponseBodyUrl))
@@ -379,7 +451,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
 
                 _logger.Information(message.ToString());
 
-                return true;
+                return batch.TotalOperations;
             });
         }
 
@@ -1426,52 +1498,26 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         #region Methods
 
         /// <summary>
-        /// Create data for the first or manual synchronization
-        /// </summary>
-        public void CreateInitialData()
-        {
-            //add all subscriptions
-            foreach (var subscription in _newsLetterSubscriptionService.GetAllNewsLetterSubscriptions())
-                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Subscription, subscription.Id, OperationType.Create);
-
-            //add stores
-            foreach (var store in _storeService.GetAllStores())
-                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Store, store.Id, OperationType.Create);
-
-            //add registered customers
-            foreach (var customer in _customerService.GetAllCustomers().Where(customer => !customer.IsGuest()))
-                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Customer, customer.Id, OperationType.Create);
-
-            //add products
-            foreach (var product in _productService.SearchProducts())
-                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Product, product.Id, OperationType.Create);
-
-            //add orders
-            foreach (var order in _orderService.SearchOrders())
-                _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Order, order.Id, OperationType.Create);
-        }
-
-        /// <summary>
         /// Synchronize data with MailChimp
         /// </summary>
         /// <param name="manualSynchronization">Whether it's a manual synchronization</param>
-        /// <returns>The asynchronous task whose result determines whether the synchronization started</returns>
-        public async Task<bool> Synchronize(bool manualSynchronization = false)
+        /// <returns>The asynchronous task whose result contains number of operation to synchronize</returns>
+        public async Task<int?> Synchronize(bool manualSynchronization = false)
         {
-            return await HandleRequest(async () =>
+            return await HandleRequest<int?>(async () =>
             {
                 //prepare records to manual synchronization
                 if (manualSynchronization)
                 {
                     var recordsPrepared = await PrepareRecordsToManualSynchronization();
                     if (!recordsPrepared)
-                        return false;
+                        return null;
                 }
 
                 //prepare batch webhook
                 var webhookPrepared = await PrepareBatchWebhook();
                 if (!webhookPrepared)
-                    return false;
+                    return null;
 
                 var operations = new List<Operation>();
 
@@ -1483,8 +1529,14 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                     operations.AddRange(await GetEcommerceApiOperations());
 
                 //start synchronization
-                var batch = await _mailChimpManager.Batches.AddAsync(new BatchRequest { Operations = operations })
-                    ?? throw new NopException("No response from the service");
+                var batchNumber = operations.Count / _mailChimpSettings.BatchOperationNumber + 
+                    (operations.Count % _mailChimpSettings.BatchOperationNumber > 0 ? 1 : 0);
+                for (int i = 0; i < batchNumber; i++)
+                {
+                    var batchOperations = operations.Skip(i * _mailChimpSettings.BatchOperationNumber).Take(_mailChimpSettings.BatchOperationNumber);
+                    var batch = await _mailChimpManager.Batches.AddAsync(new BatchRequest { Operations = batchOperations })
+                        ?? throw new NopException("No response from the service");
+                }
 
                 //synchronization successfully started, thus delete records
                 if (_mailChimpSettings.PassEcommerceData)
@@ -1492,7 +1544,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 else
                     _synchronizationRecordService.DeleteRecordsByEntityType(EntityType.Subscription);
 
-                return true;
+                return operations.Count;
             });
         }
 
@@ -1640,25 +1692,32 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle batch webhook
         /// </summary>
         /// <param name="form">Request form parameters</param>
-        /// <returns>The asynchronous task whose result determines whether the batch webhook successfully handled</returns>
-        public async Task<bool> HandleBatchWebhook(IFormCollection form)
+        /// <param name="handledBatchesInfo">Already handled batches info</param>
+        /// <returns>The asynchronous task whose result contains batch identifier and number of completed operations</returns>
+        public async Task<(string Id, int? CompletedOperationNumber)> HandleBatchWebhook(IFormCollection form, IDictionary<string, int> handledBatchesInfo)
         {
-            return await HandleRequest(async () =>
+            return await HandleRequest<(string, int?)>(async () =>
             {
                 var batchWebhookType = "batch_operation_completed";
                 if (!form.TryGetValue("type", out StringValues webhookType) || !webhookType.Equals(batchWebhookType))
-                    return false;
+                    return (null, null);
 
                 var completeStatus = "finished";
                 if (!form.TryGetValue("data[status]", out StringValues batchStatus) || !batchStatus.Equals(completeStatus))
-                    return false;
+                    return (null, null);
 
                 if (!form.TryGetValue("data[id]", out StringValues batchId))
-                    return false;
+                    return (null, null);
 
-                await LogSynchronizationResult(batchId);
+                //ensure that this batch is not yet handled
+                var alreadyHandledBatchInfo = handledBatchesInfo.FirstOrDefault(batchInfo => batchInfo.Key.Equals(batchId));
+                if (!alreadyHandledBatchInfo.Equals(default(KeyValuePair<string, int>)))
+                    return (alreadyHandledBatchInfo.Key, alreadyHandledBatchInfo.Value);
+                
+                //log and return results
+                var completedOperationNumber = await LogSynchronizationResult(batchId);
 
-                return await Task.FromResult(true);
+                return (batchId, completedOperationNumber);
             });
         }
 

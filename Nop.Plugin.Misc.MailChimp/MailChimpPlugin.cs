@@ -66,7 +66,8 @@ namespace Nop.Plugin.Misc.MailChimp
             _settingService.SaveSetting(new MailChimpSettings
             {
                 ListId = Guid.Empty.ToString(),
-                StoreIdMask = MailChimpDefaults.DefaultStoreIdMask
+                StoreIdMask = MailChimpDefaults.DefaultStoreIdMask,
+                BatchOperationNumber = MailChimpDefaults.DefaultBatchOperationNumber
             });
 
             //synchronization task
@@ -82,9 +83,6 @@ namespace Nop.Plugin.Misc.MailChimp
 
             //database objects
             _mailChimpObjectContext.Install();
-
-            //initial data for the synchronization
-            _mailChimpManager.CreateInitialData();
 
             //locales
             this.AddOrUpdatePluginLocaleResource("Plugins.Misc.MailChimp.Fields.AccountInfo", "Account information");
