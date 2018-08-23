@@ -1,9 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Data.Entity;
-using System.Data.Entity.Infrastructure;
+using System.Linq;
+using Microsoft.EntityFrameworkCore;
 using Nop.Core;
 using Nop.Data;
+using Nop.Data.Extensions;
 using Nop.Plugin.Misc.MailChimp.Domain;
 
 namespace Nop.Plugin.Misc.MailChimp.Data
@@ -15,8 +16,7 @@ namespace Nop.Plugin.Misc.MailChimp.Data
     {
         #region Ctor
 
-        public MailChimpObjectContext(string nameOrConnectionString)
-            : base(nameOrConnectionString)
+        public MailChimpObjectContext(DbContextOptions<MailChimpObjectContext> options) : base(options)
         {
         }
 
@@ -28,13 +28,9 @@ namespace Nop.Plugin.Misc.MailChimp.Data
         /// Add entity to the configuration of the model for a derived context before it is locked down
         /// </summary>
         /// <param name="modelBuilder">The builder that defines the model for the context being created</param>
-        protected override void OnModelCreating(DbModelBuilder modelBuilder)
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            modelBuilder.Configurations.Add(new SynchronizationRecordMap());
-
-            //disable EdmMetadata generation
-            //modelBuilder.Conventions.Remove<IncludeMetadataConvention>();
-
+            modelBuilder.ApplyConfiguration(new SynchronizationRecordMap());
             base.OnModelCreating(modelBuilder);
         }
 
@@ -43,22 +39,64 @@ namespace Nop.Plugin.Misc.MailChimp.Data
         #region Methods
 
         /// <summary>
-        /// Generates a data definition language script that creates schema objects
+        /// Creates a DbSet that can be used to query and save instances of entity
         /// </summary>
-        /// <returns>A DDL script</returns>
-        public string CreateDatabaseScript()
+        /// <typeparam name="TEntity">Entity type</typeparam>
+        /// <returns>A set for the given entity type</returns>
+        public virtual new DbSet<TEntity> Set<TEntity>() where TEntity : BaseEntity
         {
-            return ((IObjectContextAdapter)this).ObjectContext.CreateDatabaseScript();
+            return base.Set<TEntity>();
         }
 
         /// <summary>
-        /// Returns a System.Data.Entity.DbSet`1 instance for access to entities of the given type in the context and the underlying store
+        /// Generate a script to create all tables for the current model
         /// </summary>
-        /// <typeparam name="TEntity">The type entity for which a set should be returned</typeparam>
-        /// <returns>A set for the given entity type</returns>
-        public new IDbSet<TEntity> Set<TEntity>() where TEntity : BaseEntity
+        /// <returns>A SQL script</returns>
+        public virtual string GenerateCreateScript()
         {
-            return base.Set<TEntity>();
+            return this.Database.GenerateCreateScript();
+        }
+
+        /// <summary>
+        /// Creates a LINQ query for the query type based on a raw SQL query
+        /// </summary>
+        /// <typeparam name="TQuery">Query type</typeparam>
+        /// <param name="sql">The raw SQL query</param>
+        /// <returns>An IQueryable representing the raw SQL query</returns>
+        public virtual IQueryable<TQuery> QueryFromSql<TQuery>(string sql) where TQuery : class
+        {
+            throw new NotImplementedException();
+        }
+
+        /// <summary>
+        /// Creates a LINQ query for the entity based on a raw SQL query
+        /// </summary>
+        /// <typeparam name="TEntity">Entity type</typeparam>
+        /// <param name="sql">The raw SQL query</param>
+        /// <param name="parameters">The values to be assigned to parameters</param>
+        /// <returns>An IQueryable representing the raw SQL query</returns>
+        public virtual IQueryable<TEntity> EntityFromSql<TEntity>(string sql, params object[] parameters) where TEntity : BaseEntity
+        {
+            throw new NotImplementedException();
+        }
+
+        /// <summary>
+        /// Executes the given SQL against the database
+        /// </summary>
+        /// <param name="sql">The SQL to execute</param>
+        /// <param name="doNotEnsureTransaction">true - the transaction creation is not ensured; false - the transaction creation is ensured.</param>
+        /// <param name="timeout">The timeout to use for command. Note that the command timeout is distinct from the connection timeout, which is commonly set on the database connection string</param>
+        /// <param name="parameters">Parameters to use with the SQL</param>
+        /// <returns>The number of rows affected</returns>
+        public virtual int ExecuteSqlCommand(RawSqlString sql, bool doNotEnsureTransaction = false, int? timeout = null, params object[] parameters)
+        {
+            using (var transaction = this.Database.BeginTransaction())
+            {
+                var result = this.Database.ExecuteSqlCommand(sql, parameters);
+                transaction.Commit();
+
+                return result;
+            }
         }
 
         /// <summary>
@@ -66,9 +104,8 @@ namespace Nop.Plugin.Misc.MailChimp.Data
         /// </summary>
         public void Install()
         {
-            //create the table
-            Database.ExecuteSqlCommand(CreateDatabaseScript());
-            SaveChanges();
+            //create tables
+            this.ExecuteSqlScript(this.GenerateCreateScript());
         }
 
         /// <summary>
@@ -77,7 +114,7 @@ namespace Nop.Plugin.Misc.MailChimp.Data
         public void Uninstall()
         {
             //drop the table
-            this.DropPluginTable(this.GetTableName<MailChimpSynchronizationRecord>());
+            this.DropPluginTable(nameof(MailChimpSynchronizationRecord));
         }
 
         /// <summary>
@@ -118,15 +155,13 @@ namespace Nop.Plugin.Misc.MailChimp.Data
         }
 
         /// <summary>
-        /// Detach an entity
+        /// Detach an entity from the context
         /// </summary>
+        /// <typeparam name="TEntity">Entity type</typeparam>
         /// <param name="entity">Entity</param>
-        public void Detach(object entity)
+        public virtual void Detach<TEntity>(TEntity entity) where TEntity : BaseEntity
         {
-            if (entity == null)
-                throw new ArgumentNullException(nameof(entity));
-
-            ((IObjectContextAdapter)this).ObjectContext.Detach(entity);
+            throw new NotImplementedException();
         }
 
         #endregion
@@ -138,8 +173,8 @@ namespace Nop.Plugin.Misc.MailChimp.Data
         /// </summary>
         public virtual bool ProxyCreationEnabled
         {
-            get { return Configuration.ProxyCreationEnabled; }
-            set { Configuration.ProxyCreationEnabled = value; }
+            get { return this.ProxyCreationEnabled; }
+            set { this.ProxyCreationEnabled = value; }
         }
 
         /// <summary>
@@ -147,10 +182,10 @@ namespace Nop.Plugin.Misc.MailChimp.Data
         /// </summary>
         public virtual bool AutoDetectChangesEnabled
         {
-            get { return Configuration.AutoDetectChangesEnabled; }
-            set { Configuration.AutoDetectChangesEnabled = value; }
+            get { return this.AutoDetectChangesEnabled; }
+            set { this.AutoDetectChangesEnabled = value; }
         }
-
+        
         #endregion
     }
 }

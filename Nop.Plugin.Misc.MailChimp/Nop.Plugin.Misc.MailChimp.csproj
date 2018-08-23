@@ -1,12 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net461</TargetFramework>
+    <TargetFramework>netcoreapp2.1</TargetFramework>
     <Copyright>Copyright © Nop Solutions, Ltd</Copyright> 
     <Company>Nop Solutions, Ltd</Company> 
     <Authors>Nop Solutions, Ltd</Authors> 
-    <Version>2.21</Version> 
-    <Description>This plugin allows to integrate with MailChimp service</Description> 
     <PackageLicenseUrl></PackageLicenseUrl> 
     <PackageProjectUrl>http://www.nopcommerce.com/p/976/mailchimp-synchronization-plugin.aspx</PackageProjectUrl> 
     <RepositoryUrl>https://github.com/nopSolutions/mailchimp-plugin-for-nopcommerce</RepositoryUrl> 
@@ -46,12 +44,17 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="MailChimp.Net.V3" Version="3.0.0" />
-    <PackageReference Include="SharpCompress" Version="0.19.0" />
+    <PackageReference Include="SharpCompress" Version="0.22.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\Presentation\Nop.Web.Framework\Nop.Web.Framework.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="MailChimp.Net">
+      <HintPath>..\..\Presentation\Nop.Web\Plugins\Misc.MailChimp\MailChimp.Net.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
   <!-- This target execute after "Build" target -->

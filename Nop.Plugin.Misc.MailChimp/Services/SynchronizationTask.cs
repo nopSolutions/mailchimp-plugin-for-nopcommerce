@@ -1,6 +1,6 @@
 ﻿using Nop.Core;
-using Nop.Core.Plugins;
 using Nop.Services.Localization;
+using Nop.Services.Plugins;
 using Nop.Services.Tasks;
 
 namespace Nop.Plugin.Misc.MailChimp.Services

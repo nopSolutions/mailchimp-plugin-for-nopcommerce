@@ -16,34 +16,34 @@ namespace Nop.Plugin.Misc.MailChimp.Services
     /// </summary>
     public class EventConsumer :
         //stores
-        IConsumer<EntityInserted<Store>>,
-        IConsumer<EntityUpdated<Store>>,
-        IConsumer<EntityDeleted<Store>>,
+        IConsumer<EntityInsertedEvent<Store>>,
+        IConsumer<EntityUpdatedEvent<Store>>,
+        IConsumer<EntityDeletedEvent<Store>>,
         //customers
         IConsumer<CustomerRegisteredEvent>,
-        IConsumer<EntityInserted<Customer>>,
-        IConsumer<EntityUpdated<Customer>>,
+        IConsumer<EntityInsertedEvent<Customer>>,
+        IConsumer<EntityUpdatedEvent<Customer>>,
         //subscriptions
         IConsumer<EmailUnsubscribedEvent>,
-        IConsumer<EntityInserted<NewsLetterSubscription>>,
-        IConsumer<EntityUpdated<NewsLetterSubscription>>,
-        IConsumer<EntityDeleted<NewsLetterSubscription>>,
+        IConsumer<EntityInsertedEvent<NewsLetterSubscription>>,
+        IConsumer<EntityUpdatedEvent<NewsLetterSubscription>>,
+        IConsumer<EntityDeletedEvent<NewsLetterSubscription>>,
         //products
-        IConsumer<EntityInserted<Product>>,
-        IConsumer<EntityUpdated<Product>>,
+        IConsumer<EntityInsertedEvent<Product>>,
+        IConsumer<EntityUpdatedEvent<Product>>,
         //product attribute
-        IConsumer<EntityDeleted<ProductAttributeMapping>>,
-        IConsumer<EntityDeleted<ProductAttribute>>,
+        IConsumer<EntityDeletedEvent<ProductAttributeMapping>>,
+        IConsumer<EntityDeletedEvent<ProductAttribute>>,
         //attribute values
-        IConsumer<EntityUpdated<ProductAttributeValue>>,
-        IConsumer<EntityDeleted<ProductAttributeValue>>,
+        IConsumer<EntityUpdatedEvent<ProductAttributeValue>>,
+        IConsumer<EntityDeletedEvent<ProductAttributeValue>>,
         //attribute combinations
-        IConsumer<EntityInserted<ProductAttributeCombination>>,
-        IConsumer<EntityUpdated<ProductAttributeCombination>>,
-        IConsumer<EntityDeleted<ProductAttributeCombination>>,
+        IConsumer<EntityInsertedEvent<ProductAttributeCombination>>,
+        IConsumer<EntityUpdatedEvent<ProductAttributeCombination>>,
+        IConsumer<EntityDeletedEvent<ProductAttributeCombination>>,
         //orders
-        IConsumer<EntityInserted<Order>>,
-        IConsumer<EntityUpdated<Order>>
+        IConsumer<EntityInsertedEvent<Order>>,
+        IConsumer<EntityUpdatedEvent<Order>>
     {
         #region Fields
 
@@ -92,7 +92,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the store inserted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityInserted<Store> eventMessage)
+        public void HandleEvent(EntityInsertedEvent<Store> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -104,7 +104,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the store updated event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityUpdated<Store> eventMessage)
+        public void HandleEvent(EntityUpdatedEvent<Store> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -116,7 +116,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the store deleted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityDeleted<Store> eventMessage)
+        public void HandleEvent(EntityDeletedEvent<Store> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -140,7 +140,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the customer inserted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityInserted<Customer> eventMessage)
+        public void HandleEvent(EntityInsertedEvent<Customer> eventMessage)
         {
             if (eventMessage.Entity?.IsGuest() ?? true)
                 return;
@@ -152,7 +152,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the customer updated event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityUpdated<Customer> eventMessage)
+        public void HandleEvent(EntityUpdatedEvent<Customer> eventMessage)
         {
             if (eventMessage.Entity?.IsGuest() ?? true)
                 return;
@@ -177,7 +177,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the newsletter subscription inserted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityInserted<NewsLetterSubscription> eventMessage)
+        public void HandleEvent(EntityInsertedEvent<NewsLetterSubscription> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -189,7 +189,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the newsletter subscription updated event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityUpdated<NewsLetterSubscription> eventMessage)
+        public void HandleEvent(EntityUpdatedEvent<NewsLetterSubscription> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -201,7 +201,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the newsletter subscription deleted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityDeleted<NewsLetterSubscription> eventMessage)
+        public void HandleEvent(EntityDeletedEvent<NewsLetterSubscription> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -213,7 +213,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the product inserted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityInserted<Product> eventMessage)
+        public void HandleEvent(EntityInsertedEvent<Product> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -225,7 +225,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the product updated event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityUpdated<Product> eventMessage)
+        public void HandleEvent(EntityUpdatedEvent<Product> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -238,7 +238,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the product attribute mapping deleted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityDeleted<ProductAttributeMapping> eventMessage)
+        public void HandleEvent(EntityDeletedEvent<ProductAttributeMapping> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -257,7 +257,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the product attribute deleted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityDeleted<ProductAttribute> eventMessage)
+        public void HandleEvent(EntityDeletedEvent<ProductAttribute> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -283,7 +283,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the product attribute value updated event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityUpdated<ProductAttributeValue> eventMessage)
+        public void HandleEvent(EntityUpdatedEvent<ProductAttributeValue> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -307,7 +307,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the product attribute value deleted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityDeleted<ProductAttributeValue> eventMessage)
+        public void HandleEvent(EntityDeletedEvent<ProductAttributeValue> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -331,7 +331,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the product attribute combination inserted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityInserted<ProductAttributeCombination> eventMessage)
+        public void HandleEvent(EntityInsertedEvent<ProductAttributeCombination> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -343,7 +343,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the product attribute combination updated event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityUpdated<ProductAttributeCombination> eventMessage)
+        public void HandleEvent(EntityUpdatedEvent<ProductAttributeCombination> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -355,7 +355,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the product attribute combination deleted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityDeleted<ProductAttributeCombination> eventMessage)
+        public void HandleEvent(EntityDeletedEvent<ProductAttributeCombination> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -367,7 +367,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the order inserted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityInserted<Order> eventMessage)
+        public void HandleEvent(EntityInsertedEvent<Order> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
@@ -379,7 +379,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the order inserted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityUpdated<Order> eventMessage)
+        public void HandleEvent(EntityUpdatedEvent<Order> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;

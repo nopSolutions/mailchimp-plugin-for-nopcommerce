@@ -32,8 +32,8 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         private readonly IStaticCacheManager _cacheManager;
         private readonly IStoreService _storeService;
         private readonly ISynchronizationRecordService _synchronizationRecordService;
-        private readonly IWorkContext _workContext;
         private readonly MailChimpManager _mailChimpManager;
+        private readonly IStoreContext _storeContext;
 
         #endregion
 
@@ -45,8 +45,8 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
             IStaticCacheManager cacheManager,
             IStoreService storeService,
             ISynchronizationRecordService synchronizationRecordService,
-            IWorkContext workContext,
-            MailChimpManager mailChimpManager)
+            MailChimpManager mailChimpManager,
+            IStoreContext storeContext)
         {
             this._localizationService = localizationService;
             this._scheduleTaskService = scheduleTaskService;
@@ -54,8 +54,8 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
             this._cacheManager = cacheManager;
             this._storeService = storeService;
             this._synchronizationRecordService = synchronizationRecordService;
-            this._workContext = workContext;
             this._mailChimpManager = mailChimpManager;
+            this._storeContext = storeContext;
         }
 
         #endregion
@@ -67,7 +67,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         public async Task<IActionResult> Configure()
         {
             //load settings for a chosen store scope
-            var storeId = GetActiveStoreScopeConfiguration(_storeService, _workContext);
+            var storeId = _storeContext.ActiveStoreScopeConfiguration;
             var mailChimpSettings = _settingService.LoadSetting<MailChimpSettings>(storeId);
 
             //prepare model
@@ -81,7 +81,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
             };
 
             //check whether synchronization is in progress
-            model.SynchronizationStarted = _cacheManager.Get<int?>(MailChimpDefaults.OperationNumberCacheKey).HasValue;
+            model.SynchronizationStarted = _cacheManager.Get<int?>(MailChimpDefaults.OperationNumberCacheKey, () => null).HasValue;
 
             //prepare account info
             if (!string.IsNullOrEmpty(mailChimpSettings.ApiKey))
@@ -132,7 +132,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
                 return await Configure();
 
             //load settings for a chosen store scope
-            var storeId = GetActiveStoreScopeConfiguration(_storeService, _workContext);
+            var storeId = _storeContext.ActiveStoreScopeConfiguration;
             var mailChimpSettings = _settingService.LoadSetting<MailChimpSettings>(storeId);
 
             //update stores if the list was changed
@@ -227,10 +227,9 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         public IActionResult IsSynchronizationComplete()
         {
             //try to get number of operations and already handled batches
-            var operationNumber = _cacheManager.Get<int?>(MailChimpDefaults.OperationNumberCacheKey);
-            var batchesInfo = _cacheManager.Get<Dictionary<string, int>>(MailChimpDefaults.SynchronizationBatchesCacheKey) 
-                ?? new Dictionary<string, int>();
-
+            var operationNumber = _cacheManager.Get<int?>(MailChimpDefaults.OperationNumberCacheKey, () => null);
+            var batchesInfo = _cacheManager.Get<Dictionary<string, int>>(MailChimpDefaults.SynchronizationBatchesCacheKey, () => new Dictionary<string, int>());
+                
             //check whether the synchronization is finished
             if (!operationNumber.HasValue || operationNumber.Value == batchesInfo.Values.Sum())
             {
@@ -256,8 +255,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
                 return BadRequest();
 
             //try to get already handled batches
-            var batchesInfo = _cacheManager.Get<Dictionary<string, int>>(MailChimpDefaults.SynchronizationBatchesCacheKey)
-                ?? new Dictionary<string, int>();
+            var batchesInfo = _cacheManager.Get<Dictionary<string, int>>(MailChimpDefaults.SynchronizationBatchesCacheKey, () => new Dictionary<string, int>());
 
             //handle batch webhook
             var batchInfo = await _mailChimpManager.HandleBatchWebhook(this.Request.Form, batchesInfo);

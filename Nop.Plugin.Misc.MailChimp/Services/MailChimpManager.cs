@@ -73,8 +73,9 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         private readonly IWebHelper _webHelper;
         private readonly IWorkContext _workContext;
         private readonly MailChimpSettings _mailChimpSettings;
-
+        private readonly IGenericAttributeService _genericAttributeService;
         private readonly IMailChimpManager _mailChimpManager;
+        private readonly IUrlRecordService _urlRecordService;
 
         #endregion
 
@@ -103,7 +104,9 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             IUrlHelperFactory urlHelperFactory,
             IWebHelper webHelper,
             IWorkContext workContext,
-            MailChimpSettings mailChimpSettings)
+            IGenericAttributeService genericAttributeService,
+            MailChimpSettings mailChimpSettings,
+            IUrlRecordService urlRecordService)
         {
             this._currencySettings = currencySettings;
             this._actionContextAccessor = actionContextAccessor;
@@ -128,7 +131,9 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             this._urlHelperFactory = urlHelperFactory;
             this._webHelper = webHelper;
             this._workContext = workContext;
+            this._genericAttributeService = genericAttributeService;
             this._mailChimpSettings = mailChimpSettings;
+            this._urlRecordService = urlRecordService;
 
             //create wrapper MailChimp manager
             if (!string.IsNullOrEmpty(_mailChimpSettings.ApiKey))
@@ -302,8 +307,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                     .RouteUrl(MailChimpDefaults.BatchWebhookRoute, null, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme);
 
                 //create the new one if not exists
-                var batchWebhook = allBatchWebhooks
-                    .FirstOrDefault(webhook => !string.IsNullOrEmpty(webhook.Url) && webhook.Url.Equals(webhookUrl, StringComparison.InvariantCultureIgnoreCase));
+                var batchWebhook = allBatchWebhooks.FirstOrDefault(webhook => !string.IsNullOrEmpty(webhook.Url) && webhook.Url.Equals(webhookUrl, StringComparison.InvariantCultureIgnoreCase));
                 if (string.IsNullOrEmpty(batchWebhook?.Id))
                 {
                     batchWebhook = await _mailChimpManager.BatchWebHooks.AddAsync(webhookUrl)
@@ -585,13 +589,13 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             if (!customer?.IsGuest() ?? false)
             {
                 //try to add language
-                var languageId = customer.GetAttribute<int>(SystemCustomerAttributeNames.LanguageId);
+                var languageId = _genericAttributeService.GetAttribute<int>(customer, NopCustomerDefaults.LanguageIdAttribute);
                 if (languageId > 0)
                     member.Language = _languageService.GetLanguageById(languageId)?.UniqueSeoCode;
 
                 //try to add names
-                var firstName = customer.GetAttribute<string>(SystemCustomerAttributeNames.FirstName);
-                var lastName = customer.GetAttribute<string>(SystemCustomerAttributeNames.LastName);
+                var firstName = _genericAttributeService.GetAttribute<string>(customer, NopCustomerDefaults.FirstNameAttribute);
+                var lastName = _genericAttributeService.GetAttribute<string>(customer, NopCustomerDefaults.LastNameAttribute);
                 if (!string.IsNullOrEmpty(firstName) || !string.IsNullOrEmpty(lastName))
                 {
                     member.MergeFields = new Dictionary<string, object>
@@ -858,8 +862,8 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             var customerOrders = _orderService.SearchOrders(storeId: storeId, customerId: customer.Id).ToList();
 
             //get customer country and region
-            var customerCountry = _countryService.GetCountryById(customer.GetAttribute<int>(SystemCustomerAttributeNames.CountryId));
-            var customerProvince = _stateProvinceService.GetStateProvinceById(customer.GetAttribute<int>(SystemCustomerAttributeNames.StateProvinceId));
+            var customerCountry = _countryService.GetCountryById(_genericAttributeService.GetAttribute<int>(customer, NopCustomerDefaults.CountryIdAttribute));
+            var customerProvince = _stateProvinceService.GetStateProvinceById(_genericAttributeService.GetAttribute<int>(customer, NopCustomerDefaults.StateProvinceIdAttribute));
 
             return new mailchimp.Customer
             {
@@ -868,19 +872,19 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 OptInStatus = false,
                 OrdersCount = customerOrders.Count,
                 TotalSpent = (double)customerOrders.Sum(order => order.OrderTotal),
-                FirstName = customer.GetAttribute<string>(SystemCustomerAttributeNames.FirstName),
-                LastName = customer.GetAttribute<string>(SystemCustomerAttributeNames.LastName),
-                Company = customer.GetAttribute<string>(SystemCustomerAttributeNames.Company),
+                FirstName = _genericAttributeService.GetAttribute<string>(customer, NopCustomerDefaults.FirstNameAttribute),
+                LastName = _genericAttributeService.GetAttribute<string>(customer, NopCustomerDefaults.LastNameAttribute),
+                Company = _genericAttributeService.GetAttribute<string>(customer, NopCustomerDefaults.CompanyAttribute),
                 Address = new mailchimp.Address
                 {
-                    Address1 = customer.GetAttribute<string>(SystemCustomerAttributeNames.StreetAddress),
-                    Address2 = customer.GetAttribute<string>(SystemCustomerAttributeNames.StreetAddress2),
-                    City = customer.GetAttribute<string>(SystemCustomerAttributeNames.City),
+                    Address1 = _genericAttributeService.GetAttribute<string>(customer, NopCustomerDefaults.StreetAddressAttribute),
+                    Address2 = _genericAttributeService.GetAttribute<string>(customer, NopCustomerDefaults.StreetAddress2Attribute),
+                    City = _genericAttributeService.GetAttribute<string>(customer, NopCustomerDefaults.CityAttribute),
                     Province = customerProvince?.Name,
                     ProvinceCode = customerProvince?.Abbreviation,
                     Country = customerCountry?.Name,
                     CountryCode = customerCountry?.TwoLetterIsoCode,
-                    PostalCode = customer.GetAttribute<string>(SystemCustomerAttributeNames.ZipPostalCode)
+                    PostalCode = _genericAttributeService.GetAttribute<string>(customer, NopCustomerDefaults.ZipPostalCodeAttribute)
                 }
             };
         }
@@ -1023,12 +1027,12 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 Id = product.Id.ToString(),
                 Title = product.Name,
                 Url = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
-                    .RouteUrl(nameof(Product), new { SeName = product.GetSeName() }, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme),
+                    .RouteUrl(nameof(Product), new { SeName = _urlRecordService.GetSeName(product) }, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme),
                 Description = HtmlHelper.StripTags(!string.IsNullOrEmpty(product.FullDescription) ? product.FullDescription :
                     !string.IsNullOrEmpty(product.ShortDescription) ? product.ShortDescription : product.Name),
                 Type = product.ProductCategories.FirstOrDefault()?.Category?.Name,
                 Vendor = product.ProductManufacturers.FirstOrDefault()?.Manufacturer?.Name,
-                ImageUrl = _pictureService.GetPictureUrl(product.GetProductPicture(null, _pictureService, _productAttributeParser)),
+                ImageUrl = _pictureService.GetPictureUrl(_pictureService.GetProductPicture(product, null)),
                 Variants = CreateProductVariantsByProduct(product)
             };
         }
@@ -1066,10 +1070,10 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 Id = Guid.Empty.ToString(), //set empty guid as identifier for default product variant
                 Title = product.Name,
                 Url = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
-                    .RouteUrl(nameof(Product), new { SeName = product.GetSeName() }, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme),
+                    .RouteUrl(nameof(Product), new { SeName = _urlRecordService.GetSeName(product) }, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme),
                 Sku = product.Sku,
                 Price = (double)product.Price,
-                ImageUrl = _pictureService.GetPictureUrl(product.GetProductPicture(null, _pictureService, _productAttributeParser)),
+                ImageUrl = _pictureService.GetPictureUrl(_pictureService.GetProductPicture(product, null)),
                 InventoryQuantity = product.ManageInventoryMethod != ManageInventoryMethod.DontManageStock ? product.StockQuantity : int.MaxValue,
                 Visibility = product.Published.ToString().ToLower()
             };
@@ -1087,14 +1091,14 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 Id = combination.Id.ToString(),
                 Title = combination.Product.Name,
                 Url = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
-                    .RouteUrl(nameof(Product), new { SeName = combination.Product.GetSeName() }, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme),
+                    .RouteUrl(nameof(Product), new { SeName = _urlRecordService.GetSeName(combination.Product) }, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme),
                 Sku = !string.IsNullOrEmpty(combination.Sku) ? combination.Sku : combination.Product.Sku,
                 Price = (double)(combination.OverriddenPrice ?? combination.Product.Price),
                 InventoryQuantity = combination.Product.ManageInventoryMethod == ManageInventoryMethod.ManageStockByAttributes
                     ? combination.StockQuantity : combination.Product.ManageInventoryMethod != ManageInventoryMethod.DontManageStock
                     ? combination.Product.StockQuantity : int.MaxValue,
                 ImageUrl = _pictureService
-                    .GetPictureUrl(combination.Product.GetProductPicture(combination.AttributesXml, _pictureService, _productAttributeParser)),
+                    .GetPictureUrl(_pictureService.GetProductPicture(combination.Product, combination.AttributesXml)),
                 Visibility = combination.Product.Published.ToString().ToLowerInvariant()
             };
         }
@@ -1313,8 +1317,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 TaxTotal = (double)order.OrderTax,
                 ShippingTotal = (double)order.OrderShippingInclTax,
                 ProcessedAtForeign = order.CreatedOnUtc.ToString("s"),
-                ShippingAddress = order.PickUpInStore && order.PickupAddress != null
-                    ? MapAddress(order.PickupAddress) : MapAddress(order.ShippingAddress),
+                ShippingAddress = order.PickUpInStore && order.PickupAddress != null ? MapAddress(order.PickupAddress) : MapAddress(order.ShippingAddress),
                 BillingAddress = MapAddress(order.BillingAddress),
                 Lines = order.OrderItems.Select(item => MapOrderItem(item)).ToList()
             };

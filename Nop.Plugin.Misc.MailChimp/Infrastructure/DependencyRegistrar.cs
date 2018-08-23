@@ -8,7 +8,7 @@ using Nop.Data;
 using Nop.Plugin.Misc.MailChimp.Data;
 using Nop.Plugin.Misc.MailChimp.Domain;
 using Nop.Plugin.Misc.MailChimp.Services;
-using Nop.Web.Framework.Infrastructure;
+using Nop.Web.Framework.Infrastructure.Extensions;
 
 namespace Nop.Plugin.Misc.MailChimp.Infrastructure
 {
@@ -30,7 +30,7 @@ namespace Nop.Plugin.Misc.MailChimp.Infrastructure
 
             //register custom data services
             builder.RegisterType<SynchronizationRecordService>().As<ISynchronizationRecordService>().InstancePerLifetimeScope();
-            this.RegisterPluginDataContext<MailChimpObjectContext>(builder, MailChimpDefaults.ObjectContextName);
+            builder.RegisterPluginDataContext<MailChimpObjectContext>(MailChimpDefaults.ObjectContextName);
             builder.RegisterType<EfRepository<MailChimpSynchronizationRecord>>()
                 .As<IRepository<MailChimpSynchronizationRecord>>()
                 .WithParameter(ResolvedParameter.ForNamed<IDbContext>(MailChimpDefaults.ObjectContextName))
