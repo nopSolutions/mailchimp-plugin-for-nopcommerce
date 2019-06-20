@@ -13,6 +13,7 @@ using Nop.Plugin.Misc.MailChimp.Models;
 using Nop.Plugin.Misc.MailChimp.Services;
 using Nop.Services.Configuration;
 using Nop.Services.Localization;
+using Nop.Services.Messages;
 using Nop.Services.Stores;
 using Nop.Services.Tasks;
 using Nop.Web.Framework;
@@ -27,35 +28,38 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         #region Fields
 
         private readonly ILocalizationService _localizationService;
+        private readonly INotificationService _notificationService;
         private readonly IScheduleTaskService _scheduleTaskService;
         private readonly ISettingService _settingService;
         private readonly IStaticCacheManager _cacheManager;
+        private readonly IStoreContext _storeContext;
         private readonly IStoreService _storeService;
         private readonly ISynchronizationRecordService _synchronizationRecordService;
         private readonly MailChimpManager _mailChimpManager;
-        private readonly IStoreContext _storeContext;
 
         #endregion
 
         #region Ctor
 
         public MailChimpController(ILocalizationService localizationService,
+            INotificationService notificationService,
             IScheduleTaskService scheduleTaskService,
             ISettingService settingService,
             IStaticCacheManager cacheManager,
+            IStoreContext storeContext,
             IStoreService storeService,
             ISynchronizationRecordService synchronizationRecordService,
-            MailChimpManager mailChimpManager,
-            IStoreContext storeContext)
+            MailChimpManager mailChimpManager)
         {
-            this._localizationService = localizationService;
-            this._scheduleTaskService = scheduleTaskService;
-            this._settingService = settingService;
-            this._cacheManager = cacheManager;
-            this._storeService = storeService;
-            this._synchronizationRecordService = synchronizationRecordService;
-            this._mailChimpManager = mailChimpManager;
-            this._storeContext = storeContext;
+            _localizationService = localizationService;
+            _notificationService = notificationService;
+            _scheduleTaskService = scheduleTaskService;
+            _settingService = settingService;
+            _cacheManager = cacheManager;
+            _storeContext = storeContext;
+            _storeService = storeService;
+            _synchronizationRecordService = synchronizationRecordService;
+            _mailChimpManager = mailChimpManager;
         }
 
         #endregion
@@ -150,7 +154,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
 
                 //display warning if webhook is not prepared
                 if (!webhookPrepared && !string.IsNullOrEmpty(listId))
-                    WarningNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Webhook.Warning"));
+                    _notificationService.WarningNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Webhook.Warning"));
             }
 
             //save settings
@@ -183,10 +187,10 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
                 task.Enabled = synchronizationEnabled;
                 task.Seconds = synchronizationPeriodInSeconds;
                 _scheduleTaskService.UpdateTask(task);
-                WarningNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Fields.AutoSynchronization.Restart"));
+                _notificationService.WarningNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Fields.AutoSynchronization.Restart"));
             }
 
-            SuccessNotification(_localizationService.GetResource("Admin.Plugins.Saved"));
+            _notificationService.SuccessNotification(_localizationService.GetResource("Admin.Plugins.Saved"));
 
             return await Configure();
         }
@@ -202,7 +206,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
             var mailChimpSettings = _settingService.LoadSetting<MailChimpSettings>();
             if (string.IsNullOrEmpty(mailChimpSettings.ListId) || mailChimpSettings.ListId.Equals(Guid.Empty.ToString()))
             {
-                ErrorNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Error"));
+                _notificationService.ErrorNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Error"));
                 return await Configure();
             }
 
@@ -214,10 +218,10 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
                 _cacheManager.Remove(MailChimpDefaults.SynchronizationBatchesCacheKey);
                 _cacheManager.Set(MailChimpDefaults.OperationNumberCacheKey, operationNumber.Value, 60);
 
-                SuccessNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Started"));
+                _notificationService.SuccessNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Started"));
             }
             else
-                ErrorNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Error"));
+                _notificationService.ErrorNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Error"));
 
             return await Configure();
         }
@@ -228,8 +232,8 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         {
             //try to get number of operations and already handled batches
             var operationNumber = _cacheManager.Get<int?>(MailChimpDefaults.OperationNumberCacheKey, () => null);
-            var batchesInfo = _cacheManager.Get<Dictionary<string, int>>(MailChimpDefaults.SynchronizationBatchesCacheKey, () => new Dictionary<string, int>());
-                
+            var batchesInfo = _cacheManager.Get(MailChimpDefaults.SynchronizationBatchesCacheKey, () => new Dictionary<string, int>());
+
             //check whether the synchronization is finished
             if (!operationNumber.HasValue || operationNumber.Value == batchesInfo.Values.Sum())
             {
@@ -251,20 +255,20 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         [HttpPost]
         public async Task<IActionResult> BatchWebhook(IFormCollection form)
         {
-            if (!this.Request.Form?.Any() ?? true)
+            if (!Request.Form?.Any() ?? true)
                 return BadRequest();
 
             //try to get already handled batches
-            var batchesInfo = _cacheManager.Get<Dictionary<string, int>>(MailChimpDefaults.SynchronizationBatchesCacheKey, () => new Dictionary<string, int>());
+            var batchesInfo = _cacheManager.Get(MailChimpDefaults.SynchronizationBatchesCacheKey, () => new Dictionary<string, int>());
 
             //handle batch webhook
-            var batchInfo = await _mailChimpManager.HandleBatchWebhook(this.Request.Form, batchesInfo);
-            if (!string.IsNullOrEmpty(batchInfo.Id) && batchInfo.CompletedOperationNumber.HasValue)
+            var (id, completedOperationNumber) = await _mailChimpManager.HandleBatchWebhook(Request.Form, batchesInfo);
+            if (!string.IsNullOrEmpty(id) && completedOperationNumber.HasValue)
             {
-                if (!batchesInfo.ContainsKey(batchInfo.Id))
+                if (!batchesInfo.ContainsKey(id))
                 {
                     //update cached value
-                    batchesInfo.Add(batchInfo.Id, batchInfo.CompletedOperationNumber.Value);
+                    batchesInfo.Add(id, completedOperationNumber.Value);
                     _cacheManager.Set(MailChimpDefaults.SynchronizationBatchesCacheKey, batchesInfo, 60);
                 }
                 return Ok();
@@ -281,15 +285,12 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         [HttpPost]
         public async Task<IActionResult> WebHook(IFormCollection form)
         {
-            if (!this.Request.Form?.Any() ?? true)
+            if (!Request.Form?.Any() ?? true)
                 return BadRequest();
 
             //handle webhook
-            var success = await _mailChimpManager.HandleWebhook(this.Request.Form);
-            if (success)
-                return Ok();
-
-            return BadRequest();
+            var success = await _mailChimpManager.HandleWebhook(Request.Form);
+            return success ? Ok() : (IActionResult)BadRequest();
         }
 
         #endregion

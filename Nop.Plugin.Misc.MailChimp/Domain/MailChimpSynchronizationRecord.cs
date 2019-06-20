@@ -1,4 +1,4 @@
-using Nop.Core;
+﻿using Nop.Core;
 
 namespace Nop.Plugin.Misc.MailChimp.Domain
 {
@@ -37,8 +37,8 @@ namespace Nop.Plugin.Misc.MailChimp.Domain
         /// </summary>
         public EntityType EntityType
         {
-            get { return (EntityType)EntityTypeId; }
-            set { EntityTypeId = (int)value; }
+            get => (EntityType)EntityTypeId;
+            set => EntityTypeId = (int)value;
         }
 
         /// <summary>
@@ -46,8 +46,8 @@ namespace Nop.Plugin.Misc.MailChimp.Domain
         /// </summary>
         public OperationType OperationType
         {
-            get { return (OperationType)OperationTypeId; }
-            set { OperationTypeId = (int)value; }
+            get => (OperationType)OperationTypeId;
+            set => OperationTypeId = (int)value;
         }
     }
 }

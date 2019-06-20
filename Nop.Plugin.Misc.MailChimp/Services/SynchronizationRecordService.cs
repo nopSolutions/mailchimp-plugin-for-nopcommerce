@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Nop.Core.Data;
@@ -21,7 +21,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
 
         public SynchronizationRecordService(IRepository<MailChimpSynchronizationRecord> synchronizationRecordRepository)
         {
-            this._synchronizationRecordRepository = synchronizationRecordRepository;
+            _synchronizationRecordRepository = synchronizationRecordRepository;
         }
 
         #endregion
@@ -44,10 +44,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// <returns>Synchronization record</returns>
         public virtual MailChimpSynchronizationRecord GetRecordById(int recordId)
         {
-            if (recordId == 0)
-                return null;
-
-            return _synchronizationRecordRepository.GetById(recordId);
+            return recordId == 0 ? null : _synchronizationRecordRepository.GetById(recordId);
         }
 
         /// <summary>

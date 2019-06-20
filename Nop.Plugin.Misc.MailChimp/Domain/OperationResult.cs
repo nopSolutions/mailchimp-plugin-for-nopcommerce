@@ -1,5 +1,4 @@
-﻿using MailChimp.Net.Models;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 
 namespace Nop.Plugin.Misc.MailChimp.Domain
 {

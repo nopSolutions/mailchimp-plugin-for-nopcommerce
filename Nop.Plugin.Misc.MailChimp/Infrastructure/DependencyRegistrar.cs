@@ -40,9 +40,6 @@ namespace Nop.Plugin.Misc.MailChimp.Infrastructure
         /// <summary>
         /// Gets the order of this dependency registrar implementation
         /// </summary>
-        public int Order
-        {
-            get { return 1; }
-        }
+        public int Order => 1;
     }
 }

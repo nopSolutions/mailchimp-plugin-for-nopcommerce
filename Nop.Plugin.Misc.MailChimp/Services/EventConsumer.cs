@@ -61,10 +61,10 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             IProductService productService,
             ISynchronizationRecordService synchronizationRecordService)
         {
-            this._productAttributeParser = productAttributeParser;
-            this._productAttributeService = productAttributeService;
-            this._productService = productService;
-            this._synchronizationRecordService = synchronizationRecordService;
+            _productAttributeParser = productAttributeParser;
+            _productAttributeService = productAttributeService;
+            _productService = productService;
+            _synchronizationRecordService = synchronizationRecordService;
         }
 
         #endregion

@@ -12,7 +12,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Mvc.Routing;
-using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json;
 using Nop.Core;
 using Nop.Core.Domain.Catalog;
@@ -55,8 +54,10 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         private readonly ICurrencyService _currencyService;
         private readonly ICustomerService _customerService;
         private readonly IDateTimeHelper _dateTimeHelper;
+        private readonly IGenericAttributeService _genericAttributeService;
         private readonly ILanguageService _languageService;
         private readonly ILogger _logger;
+        private readonly IMailChimpManager _mailChimpManager;
         private readonly INewsLetterSubscriptionService _newsLetterSubscriptionService;
         private readonly IOrderService _orderService;
         private readonly IPictureService _pictureService;
@@ -70,12 +71,10 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         private readonly IStoreService _storeService;
         private readonly ISynchronizationRecordService _synchronizationRecordService;
         private readonly IUrlHelperFactory _urlHelperFactory;
+        private readonly IUrlRecordService _urlRecordService;
         private readonly IWebHelper _webHelper;
         private readonly IWorkContext _workContext;
         private readonly MailChimpSettings _mailChimpSettings;
-        private readonly IGenericAttributeService _genericAttributeService;
-        private readonly IMailChimpManager _mailChimpManager;
-        private readonly IUrlRecordService _urlRecordService;
 
         #endregion
 
@@ -108,32 +107,32 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             MailChimpSettings mailChimpSettings,
             IUrlRecordService urlRecordService)
         {
-            this._currencySettings = currencySettings;
-            this._actionContextAccessor = actionContextAccessor;
-            this._countryService = countryService;
-            this._currencyService = currencyService;
-            this._customerService = customerService;
-            this._dateTimeHelper = dateTimeHelper;
-            this._languageService = languageService;
-            this._logger = logger;
-            this._newsLetterSubscriptionService = newsLetterSubscriptionService;
-            this._orderService = orderService;
-            this._pictureService = pictureService;
-            this._priceCalculationService = priceCalculationService;
-            this._productAttributeParser = productAttributeParser;
-            this._productAttributeService = productAttributeService;
-            this._productService = productService;
-            this._settingService = settingService;
-            this._stateProvinceService = stateProvinceService;
-            this._storeMappingService = storeMappingService;
-            this._storeService = storeService;
-            this._synchronizationRecordService = synchronizationRecordService;
-            this._urlHelperFactory = urlHelperFactory;
-            this._webHelper = webHelper;
-            this._workContext = workContext;
-            this._genericAttributeService = genericAttributeService;
-            this._mailChimpSettings = mailChimpSettings;
-            this._urlRecordService = urlRecordService;
+            _currencySettings = currencySettings;
+            _actionContextAccessor = actionContextAccessor;
+            _countryService = countryService;
+            _currencyService = currencyService;
+            _customerService = customerService;
+            _dateTimeHelper = dateTimeHelper;
+            _languageService = languageService;
+            _logger = logger;
+            _newsLetterSubscriptionService = newsLetterSubscriptionService;
+            _orderService = orderService;
+            _pictureService = pictureService;
+            _priceCalculationService = priceCalculationService;
+            _productAttributeParser = productAttributeParser;
+            _productAttributeService = productAttributeService;
+            _productService = productService;
+            _settingService = settingService;
+            _stateProvinceService = stateProvinceService;
+            _storeMappingService = storeMappingService;
+            _storeService = storeService;
+            _synchronizationRecordService = synchronizationRecordService;
+            _urlHelperFactory = urlHelperFactory;
+            _webHelper = webHelper;
+            _workContext = workContext;
+            _genericAttributeService = genericAttributeService;
+            _mailChimpSettings = mailChimpSettings;
+            _urlRecordService = urlRecordService;
 
             //create wrapper MailChimp manager
             if (!string.IsNullOrEmpty(_mailChimpSettings.ApiKey))
@@ -425,10 +424,11 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 message.AppendLine($"errored operations: {batch.ErroredOperations}");
                 message.AppendLine($"total operations: {batch.TotalOperations}");
                 message.AppendLine($"batch ID: {batch.Id}");
+                message.AppendLine($"batch status: {batch.Status}");
 
                 //whether there are errors in operation results
                 var operationResultsWithErrors = operationResults
-                    .Where(result => !int.TryParse(result.StatusCode, out int statusCode) || statusCode != (int)HttpStatusCode.OK);
+                    .Where(result => !int.TryParse(result.StatusCode, out var statusCode) || statusCode != (int)HttpStatusCode.OK);
                 if (operationResultsWithErrors.Any())
                 {
                     message.AppendLine("Synchronization errors:");
@@ -444,10 +444,10 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                         {
                             var errorDetails = errorInfo.Errors
                                 .Aggregate(string.Empty, (error, detail) => $"{error}{detail?.Field} - {detail?.Message};");
-                            errorMessage = $"{errorMessage} - {errorDetails}";
+                            errorMessage = $"{errorInfo.Type} - {errorInfo.Title} - {errorMessage} - {errorDetails}";
                         }
                         else
-                            errorMessage = $"{errorMessage} - {errorInfo.Detail}";
+                            errorMessage = $"{errorInfo.Type} - {errorInfo.Title} - {errorMessage} - {errorInfo.Detail}";
 
                         message.AppendLine(errorMessage);
                     }
@@ -871,7 +871,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 EmailAddress = customer.Email,
                 OptInStatus = false,
                 OrdersCount = customerOrders.Count,
-                TotalSpent = (double)customerOrders.Sum(order => order.OrderTotal),
+                TotalSpent = customerOrders.Sum(order => order.OrderTotal),
                 FirstName = _genericAttributeService.GetAttribute<string>(customer, NopCustomerDefaults.FirstNameAttribute),
                 LastName = _genericAttributeService.GetAttribute<string>(customer, NopCustomerDefaults.LastNameAttribute),
                 Company = _genericAttributeService.GetAttribute<string>(customer, NopCustomerDefaults.CompanyAttribute),
@@ -1044,10 +1044,11 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// <returns>List of product variants</returns>
         private IList<mailchimp.Variant> CreateProductVariantsByProduct(Product product)
         {
-            var variants = new List<mailchimp.Variant>();
-
-            //add default variant
-            variants.Add(CreateDefaultProductVariantByProduct(product));
+            var variants = new List<mailchimp.Variant>
+            {
+                //add default variant
+                CreateDefaultProductVariantByProduct(product)
+            };
 
             //add variants from attribute combinations
             var combinationVariants = product.ProductAttributeCombinations
@@ -1072,7 +1073,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 Url = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
                     .RouteUrl(nameof(Product), new { SeName = _urlRecordService.GetSeName(product) }, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme),
                 Sku = product.Sku,
-                Price = (double)product.Price,
+                Price = product.Price,
                 ImageUrl = _pictureService.GetPictureUrl(_pictureService.GetProductPicture(product, null)),
                 InventoryQuantity = product.ManageInventoryMethod != ManageInventoryMethod.DontManageStock ? product.StockQuantity : int.MaxValue,
                 Visibility = product.Published.ToString().ToLower()
@@ -1093,7 +1094,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 Url = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
                     .RouteUrl(nameof(Product), new { SeName = _urlRecordService.GetSeName(combination.Product) }, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme),
                 Sku = !string.IsNullOrEmpty(combination.Sku) ? combination.Sku : combination.Product.Sku,
-                Price = (double)(combination.OverriddenPrice ?? combination.Product.Price),
+                Price = combination.OverriddenPrice ?? combination.Product.Price,
                 InventoryQuantity = combination.Product.ManageInventoryMethod == ManageInventoryMethod.ManageStockByAttributes
                     ? combination.StockQuantity : combination.Product.ManageInventoryMethod != ManageInventoryMethod.DontManageStock
                     ? combination.Product.StockQuantity : int.MaxValue,
@@ -1313,25 +1314,27 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 FinancialStatus = order.PaymentStatus.ToString("D"),
                 FulfillmentStatus = order.OrderStatus.ToString("D"),
                 CurrencyCode = GetCurrencyCode(),
-                OrderTotal = (double)order.OrderTotal,
-                TaxTotal = (double)order.OrderTax,
-                ShippingTotal = (double)order.OrderShippingInclTax,
+                OrderTotal = order.OrderTotal,
+                TaxTotal = order.OrderTax,
+                ShippingTotal = order.OrderShippingInclTax,
                 ProcessedAtForeign = order.CreatedOnUtc.ToString("s"),
-                ShippingAddress = order.PickUpInStore && order.PickupAddress != null ? MapAddress(order.PickupAddress) : MapAddress(order.ShippingAddress),
-                BillingAddress = MapAddress(order.BillingAddress),
+                ShippingAddress = order.PickupInStore && order.PickupAddress != null ? MapOrderAddress(order.PickupAddress) : MapOrderAddress(order.ShippingAddress),
+                BillingAddress = MapOrderAddress(order.BillingAddress),
                 Lines = order.OrderItems.Select(item => MapOrderItem(item)).ToList()
             };
         }
 
         /// <summary>
-        /// Create MailChimp address object by nopCommerce address object
+        /// Create MailChimp order address object by nopCommerce address object
         /// </summary>
         /// <param name="address">Address</param>
-        /// <returns>Address</returns>
-        private mailchimp.Address MapAddress(Address address)
+        /// <returns>Order address</returns>
+        private mailchimp.OrderAddress MapOrderAddress(Address address)
         {
-            return address == null ? null : new mailchimp.Address
+            return address == null ? null : new mailchimp.OrderAddress
             {
+                Phone = address.PhoneNumber,
+                Company = address.Company,
                 Address1 = address.Address1,
                 Address2 = address.Address2,
                 City = address.City,
@@ -1339,7 +1342,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 ProvinceCode = address.StateProvince?.Abbreviation,
                 Country = address.Country?.Name,
                 CountryCode = address.Country?.TwoLetterIsoCode,
-                PostalCode = address.ZipPostalCode,
+                PostalCode = address.ZipPostalCode
             };
         }
 
@@ -1356,7 +1359,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 ProductId = item.ProductId.ToString(),
                 ProductVariantId = _productAttributeParser
                     .FindProductAttributeCombination(item.Product, item.AttributesXml)?.Id.ToString() ?? Guid.Empty.ToString(),
-                Price = (double)item.PriceInclTax,
+                Price = item.PriceInclTax,
                 Quantity = item.Quantity
             };
         }
@@ -1374,7 +1377,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             var operations = new List<Operation>();
 
             //get customers with shopping cart
-            var customersWithCart = _customerService.GetAllCustomers(loadOnlyWithShoppingCart: true, sct: ShoppingCartType.ShoppingCart)
+            var customersWithCart = _customerService.GetCustomersWithShoppingCarts(ShoppingCartType.ShoppingCart)
                 .Where(customer => !customer.IsGuest());
 
             foreach (var store in _storeService.GetAllStores())
@@ -1457,8 +1460,10 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 return null;
 
             //create cart lines
-            var lines = customer.ShoppingCartItems.LimitPerStore(storeId)
-                .Select(item => MapShoppingCartItem(item)).Where(line => line != null).ToList();
+            var lines = customer.ShoppingCartItems.Where(cart => cart?.StoreId == storeId)
+                .Select(item => MapShoppingCartItem(item))
+                .Where(line => line != null)
+                .ToList();
 
             return new mailchimp.Cart
             {
@@ -1485,7 +1490,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 ProductId = item.ProductId.ToString(),
                 ProductVariantId = _productAttributeParser
                     .FindProductAttributeCombination(item.Product, item.AttributesXml)?.Id.ToString() ?? Guid.Empty.ToString(),
-                Price = (double)_priceCalculationService.GetSubTotal(item),
+                Price = _priceCalculationService.GetSubTotal(item),
                 Quantity = item.Quantity
             };
         }
@@ -1532,9 +1537,9 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                     operations.AddRange(await GetEcommerceApiOperations());
 
                 //start synchronization
-                var batchNumber = operations.Count / _mailChimpSettings.BatchOperationNumber + 
+                var batchNumber = operations.Count / _mailChimpSettings.BatchOperationNumber +
                     (operations.Count % _mailChimpSettings.BatchOperationNumber > 0 ? 1 : 0);
-                for (int i = 0; i < batchNumber; i++)
+                for (var i = 0; i < batchNumber; i++)
                 {
                     var batchOperations = operations.Skip(i * _mailChimpSettings.BatchOperationNumber).Take(_mailChimpSettings.BatchOperationNumber);
                     var batch = await _mailChimpManager.Batches.AddAsync(new BatchRequest { Operations = batchOperations })
@@ -1702,21 +1707,21 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             return await HandleRequest<(string, int?)>(async () =>
             {
                 var batchWebhookType = "batch_operation_completed";
-                if (!form.TryGetValue("type", out StringValues webhookType) || !webhookType.Equals(batchWebhookType))
+                if (!form.TryGetValue("type", out var webhookType) || !webhookType.Equals(batchWebhookType))
                     return (null, null);
 
                 var completeStatus = "finished";
-                if (!form.TryGetValue("data[status]", out StringValues batchStatus) || !batchStatus.Equals(completeStatus))
+                if (!form.TryGetValue("data[status]", out var batchStatus) || !batchStatus.Equals(completeStatus))
                     return (null, null);
 
-                if (!form.TryGetValue("data[id]", out StringValues batchId))
+                if (!form.TryGetValue("data[id]", out var batchId))
                     return (null, null);
 
                 //ensure that this batch is not yet handled
                 var alreadyHandledBatchInfo = handledBatchesInfo.FirstOrDefault(batchInfo => batchInfo.Key.Equals(batchId));
                 if (!alreadyHandledBatchInfo.Equals(default(KeyValuePair<string, int>)))
                     return (alreadyHandledBatchInfo.Key, alreadyHandledBatchInfo.Value);
-                
+
                 //log and return results
                 var completedOperationNumber = await LogSynchronizationResult(batchId);
 
@@ -1734,7 +1739,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             return await HandleRequest(async () =>
             {
                 //try to get subscriber list identifier
-                if (!form.TryGetValue("data[list_id]", out StringValues listId))
+                if (!form.TryGetValue("data[list_id]", out var listId))
                     return false;
 
                 //get stores that tied to a specific MailChimp list
@@ -1743,10 +1748,10 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                     .Where(store => listId.Equals(_settingService.GetSettingByKey<string>(settingsName, storeId: store.Id, loadSharedValueIfNotFound: true)))
                     .Select(store => store.Id).ToList();
 
-                if (!form.TryGetValue("data[email]", out StringValues email))
+                if (!form.TryGetValue("data[email]", out var email))
                     return false;
 
-                if (!form.TryGetValue("type", out StringValues webhookType))
+                if (!form.TryGetValue("type", out var webhookType))
                     return false;
 
                 //deactivate subscriptions

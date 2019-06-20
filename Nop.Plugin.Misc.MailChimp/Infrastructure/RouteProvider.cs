@@ -26,10 +26,7 @@ namespace Nop.Plugin.Misc.MailChimp.Infrastructure
         /// <summary>
         /// Gets a priority of route provider
         /// </summary>
-        public int Priority
-        {
-            get { return 0; }
-        }
+        public int Priority => 0;
 
     }
 }

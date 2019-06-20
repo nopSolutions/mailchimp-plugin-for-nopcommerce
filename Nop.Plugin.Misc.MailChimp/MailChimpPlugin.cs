@@ -1,13 +1,12 @@
 ﻿using System;
 using Nop.Core;
 using Nop.Core.Domain.Tasks;
-using Nop.Core.Plugins;
 using Nop.Plugin.Misc.MailChimp.Data;
 using Nop.Plugin.Misc.MailChimp.Services;
 using Nop.Services.Common;
 using Nop.Services.Configuration;
 using Nop.Services.Localization;
-using Nop.Services.Stores;
+using Nop.Services.Plugins;
 using Nop.Services.Tasks;
 
 namespace Nop.Plugin.Misc.MailChimp
@@ -19,33 +18,31 @@ namespace Nop.Plugin.Misc.MailChimp
     {
         #region Fields
 
+        private readonly ILocalizationService _localizationService;
         private readonly IScheduleTaskService _scheduleTaskService;
         private readonly ISettingService _settingService;
-        private readonly IStoreService _storeService;
         private readonly IWebHelper _webHelper;
         private readonly MailChimpManager _mailChimpManager;
         private readonly MailChimpObjectContext _mailChimpObjectContext;
-        private readonly ILocalizationService _localizationService;
 
         #endregion
 
         #region Ctor
 
-        public MailChimpPlugin(IScheduleTaskService scheduleTaskService,
+        public MailChimpPlugin(ILocalizationService localizationService,
+            IScheduleTaskService scheduleTaskService,
             ISettingService settingService,
-            IStoreService storeService,
             IWebHelper webHelper,
             MailChimpManager mailChimpManager,
-            MailChimpObjectContext mailChimpObjectContext,
-            ILocalizationService localizationService)
+            MailChimpObjectContext mailChimpObjectContext)
         {
-            this._scheduleTaskService = scheduleTaskService;
-            this._settingService = settingService;
-            this._storeService = storeService;
-            this._webHelper = webHelper;
-            this._mailChimpManager = mailChimpManager;
-            this._mailChimpObjectContext = mailChimpObjectContext;
-            this._localizationService = localizationService;
+            _localizationService = localizationService;
+            _scheduleTaskService = scheduleTaskService;
+            _settingService = settingService;
+            _webHelper = webHelper;
+            _mailChimpManager = mailChimpManager;
+            _mailChimpObjectContext = mailChimpObjectContext;
+            
         }
 
         #endregion

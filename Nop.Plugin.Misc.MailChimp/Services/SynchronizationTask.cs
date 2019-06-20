@@ -13,7 +13,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         #region Fields
 
         private readonly ILocalizationService _localizationService;
-        private readonly IPluginFinder _pluginFinder;
+        private readonly IPluginService _pluginService;
         private readonly MailChimpManager _mailChimpManager;
 
         #endregion
@@ -21,12 +21,12 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         #region Ctor
 
         public SynchronizationTask(ILocalizationService localizationService,
-            IPluginFinder pluginFinder,
+            IPluginService pluginService,
             MailChimpManager mailChimpManager)
         {
-            this._localizationService = localizationService;
-            this._pluginFinder = pluginFinder;
-            this._mailChimpManager = mailChimpManager;
+            _localizationService = localizationService;
+            _pluginService = pluginService;
+            _mailChimpManager = mailChimpManager;
         }
 
         #endregion
@@ -39,8 +39,8 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         public void Execute()
         {
             //ensure that plugin installed
-            var plugin = _pluginFinder.GetPluginDescriptorBySystemName(MailChimpDefaults.SystemName);
-            if (!(plugin?.Installed ?? false) || !(plugin.Instance() is MailChimpPlugin))
+            var pluginDescriptor = _pluginService.GetPluginDescriptorBySystemName<IPlugin>(MailChimpDefaults.SystemName, LoadPluginsMode.InstalledOnly);
+            if (pluginDescriptor == null)
                 return;
 
             //start the synchronization

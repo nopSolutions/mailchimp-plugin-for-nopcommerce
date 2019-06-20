@@ -1,5 +1,4 @@
-﻿
-namespace Nop.Plugin.Misc.MailChimp.Domain
+﻿namespace Nop.Plugin.Misc.MailChimp.Domain
 {
     /// <summary>
     /// Represents an operation type enumeration
