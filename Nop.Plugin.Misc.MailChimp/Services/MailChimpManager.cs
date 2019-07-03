@@ -576,7 +576,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             var member = new mailchimp.Member
             {
                 EmailAddress = subscription.Email,
-                TimestampSignup = subscription.CreatedOnUtc.ToString("s")
+                TimestampSignup = subscription.CreatedOnUtc.ToString("u")
             };
 
             //set member status
@@ -1317,7 +1317,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 OrderTotal = order.OrderTotal,
                 TaxTotal = order.OrderTax,
                 ShippingTotal = order.OrderShippingInclTax,
-                ProcessedAtForeign = order.CreatedOnUtc.ToString("s"),
+                ProcessedAtForeign = order.CreatedOnUtc.ToString("u"),
                 ShippingAddress = order.PickupInStore && order.PickupAddress != null ? MapOrderAddress(order.PickupAddress) : MapOrderAddress(order.ShippingAddress),
                 BillingAddress = MapOrderAddress(order.BillingAddress),
                 Lines = order.OrderItems.Select(item => MapOrderItem(item)).ToList()
