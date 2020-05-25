@@ -3,7 +3,7 @@
 
 nopCommerce site: [https://www.nopcommerce.com](https://www.nopcommerce.com)
 
-Listing on nopCommerce "extensions and themes" catalog: [https://www.nopcommerce.com/p/976/mailchimp-synchronization-plugin.aspx](https://www.nopcommerce.com/p/976/mailchimp-synchronization-plugin.aspx)
+Listing on nopCommerce "extensions and themes" catalog: [https://www.nopcommerce.com/mailchimp-synchronization-plugin](https://www.nopcommerce.com/mailchimp-synchronization-plugin)
 
 MailChimp site: [http://www.mailchimp.com/](http://www.mailchimp.com/)
 
