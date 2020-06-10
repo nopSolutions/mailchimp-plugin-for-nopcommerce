@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Nop.Core.Data;
+using Nop.Data;
 using Nop.Plugin.Misc.MailChimp.Domain;
 
 namespace Nop.Plugin.Misc.MailChimp.Services

@@ -45,7 +45,7 @@
                         <nop-label asp-for="ApiKey" />
                     </div>
                     <div class="col-md-9">
-                        <nop-editor asp-for="ApiKey" asp-required="true" />
+                        <nop-editor asp-for="ApiKey" asp-required="true" asp-value="@Model.ApiKey"/>
                         <span asp-validation-for="ApiKey"></span>
                     </div>
                 </div>

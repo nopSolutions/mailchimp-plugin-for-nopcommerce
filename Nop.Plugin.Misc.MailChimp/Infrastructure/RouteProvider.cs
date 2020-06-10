@@ -12,14 +12,14 @@ namespace Nop.Plugin.Misc.MailChimp.Infrastructure
         /// <summary>
         /// Register routes
         /// </summary>
-        /// <param name="routeBuilder">Route builder</param>
-        public void RegisterRoutes(IRouteBuilder routeBuilder)
+        /// <param name="endpointRouteBuilder">Route builder</param>
+        public void RegisterRoutes(IEndpointRouteBuilder endpointRouteBuilder)
         {
             //webhook routes
-            routeBuilder.MapRoute(MailChimpDefaults.BatchWebhookRoute,
+            endpointRouteBuilder.MapControllerRoute(MailChimpDefaults.BatchWebhookRoute,
                 "Plugins/MailChimp/BatchWebhook", new { controller = "MailChimp", action = "BatchWebhook" });
 
-            routeBuilder.MapRoute(MailChimpDefaults.WebhookRoute,
+            endpointRouteBuilder.MapControllerRoute(MailChimpDefaults.WebhookRoute,
                 "Plugins/MailChimp/Webhook", new { controller = "MailChimp", action = "WebHook" });
         }
 

@@ -7,6 +7,7 @@ using Nop.Core.Domain.Stores;
 using Nop.Core.Events;
 using Nop.Plugin.Misc.MailChimp.Domain;
 using Nop.Services.Catalog;
+using Nop.Services.Customers;
 using Nop.Services.Events;
 
 namespace Nop.Plugin.Misc.MailChimp.Services
@@ -47,6 +48,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
     {
         #region Fields
 
+        private readonly ICustomerService _customerService;
         private readonly IProductAttributeParser _productAttributeParser;
         private readonly IProductAttributeService _productAttributeService;
         private readonly IProductService _productService;
@@ -56,11 +58,13 @@ namespace Nop.Plugin.Misc.MailChimp.Services
 
         #region Ctor
 
-        public EventConsumer(IProductAttributeParser productAttributeParser,
+        public EventConsumer(ICustomerService customerService, 
+            IProductAttributeParser productAttributeParser,
             IProductAttributeService productAttributeService,
             IProductService productService,
             ISynchronizationRecordService synchronizationRecordService)
         {
+            _customerService = customerService;
             _productAttributeParser = productAttributeParser;
             _productAttributeService = productAttributeService;
             _productService = productService;
@@ -142,7 +146,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// <param name="eventMessage">Event message</param>
         public void HandleEvent(EntityInsertedEvent<Customer> eventMessage)
         {
-            if (eventMessage.Entity?.IsGuest() ?? true)
+            if (eventMessage.Entity == null || _customerService.IsGuest(eventMessage.Entity))
                 return;
 
             AddRecord(EntityType.Customer, eventMessage.Entity.Id, OperationType.Create);
@@ -154,7 +158,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// <param name="eventMessage">Event message</param>
         public void HandleEvent(EntityUpdatedEvent<Customer> eventMessage)
         {
-            if (eventMessage.Entity?.IsGuest() ?? true)
+            if (eventMessage.Entity == null || _customerService.IsGuest(eventMessage.Entity))
                 return;
 
             var operationType = eventMessage.Entity.Deleted ? OperationType.Delete : OperationType.Update;
@@ -265,7 +269,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             //get associated product attribute mapping objects
             var productAttributeMappings = _productService.GetProductsByProductAtributeId(eventMessage.Entity.Id)
                 .SelectMany(product => _productAttributeService.GetProductAttributeMappingsByProductId(product.Id)
-                .Where(attribute => attribute.Product != null && attribute.ProductAttributeId == eventMessage.Entity.Id));
+                .Where(attribute => attribute.ProductId > 0 && attribute.ProductAttributeId == eventMessage.Entity.Id));
             foreach (var productAttributeMapping in productAttributeMappings)
             {
                 //update combinations related with deleted product attribute

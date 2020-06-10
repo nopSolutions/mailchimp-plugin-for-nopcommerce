@@ -1,4 +1,5 @@
-﻿
+﻿using Nop.Core.Caching;
+
 namespace Nop.Plugin.Misc.MailChimp
 {
     /// <summary>
@@ -12,19 +13,14 @@ namespace Nop.Plugin.Misc.MailChimp
         public static string SystemName => "Misc.MailChimp";
 
         /// <summary>
-        /// Object context name
-        /// </summary>
-        public static string ObjectContextName => "nop_object_context_misc_mailchimp";
-
-        /// <summary>
         /// Cache key to store the operation number of a synchronization
         /// </summary>
-        public static string OperationNumberCacheKey => "MailChimp-synchronization-operations";
+        public static CacheKey OperationNumberCacheKey => new CacheKey("MailChimp-synchronization-operations");
 
         /// <summary>
         /// Cache key to store handled batches of a synchronization
         /// </summary>
-        public static string SynchronizationBatchesCacheKey => "MailChimp-synchronization-batches";
+        public static CacheKey SynchronizationBatchesCacheKey => new CacheKey("MailChimp-synchronization-batches");
 
         /// <summary>
         /// Default mask of store identifier that uniquely identifying the store in MailChimp E-Commerce
