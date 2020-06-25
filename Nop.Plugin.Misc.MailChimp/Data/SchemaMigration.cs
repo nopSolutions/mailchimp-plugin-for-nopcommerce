@@ -5,7 +5,7 @@ using Nop.Plugin.Misc.MailChimp.Domain;
 namespace Nop.Plugin.Misc.MailChimp.Data
 {
     [SkipMigrationOnUpdate]
-    [NopMigration("2020/06/04 12:00:00", "Misc.MailChimpl base schema")]
+    [NopMigration("2020/06/04 12:00:00", "Misc.MailChimp base schema")]
     public class SchemaMigration : AutoReversingMigration
     {
         #region Fields

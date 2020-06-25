@@ -24,6 +24,7 @@ using Nop.Web.Framework.Mvc.Filters;
 
 namespace Nop.Plugin.Misc.MailChimp.Controllers
 {
+    [AutoValidateAntiforgeryToken]
     public class MailChimpController : BasePluginController
     {
         #region Fields
@@ -133,7 +134,6 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         [HttpPost, ActionName("Configure")]
         [FormValueRequired("save")]
         [AuthorizeAdmin]
-        [AutoValidateAntiforgeryToken]
         [Area(AreaNames.Admin)]
         public async Task<IActionResult> Configure(ConfigurationModel model)
         {
@@ -203,7 +203,6 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         [HttpPost, ActionName("Configure")]
         [FormValueRequired("synchronization")]
         [AuthorizeAdmin]
-        [AutoValidateAntiforgeryToken]
         [Area(AreaNames.Admin)]
         public async Task<IActionResult> Synchronization()
         {
@@ -258,7 +257,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         }
 
         [HttpPost]
-        [AutoValidateAntiforgeryToken]
+        [IgnoreAntiforgeryToken]
         public async Task<IActionResult> BatchWebhook(IFormCollection form)
         {
             if (!Request.Form?.Any() ?? true)
@@ -289,7 +288,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         }
 
         [HttpPost]
-        [AutoValidateAntiforgeryToken]
+        [IgnoreAntiforgeryToken]
         public async Task<IActionResult> WebHook(IFormCollection form)
         {
             if (!Request.Form?.Any() ?? true)
