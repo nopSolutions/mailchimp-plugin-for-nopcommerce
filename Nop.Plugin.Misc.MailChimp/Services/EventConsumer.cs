@@ -146,7 +146,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// <param name="eventMessage">Event message</param>
         public void HandleEvent(EntityInsertedEvent<Customer> eventMessage)
         {
-            if (eventMessage.Entity == null || _customerService.IsGuest(eventMessage.Entity))
+            if (eventMessage.Entity == null || _customerService.IsGuest(eventMessage.Entity) || string.IsNullOrEmpty(eventMessage.Entity?.Email))
                 return;
 
             AddRecord(EntityType.Customer, eventMessage.Entity.Id, OperationType.Create);
