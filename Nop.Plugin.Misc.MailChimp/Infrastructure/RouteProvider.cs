@@ -17,10 +17,12 @@ namespace Nop.Plugin.Misc.MailChimp.Infrastructure
         {
             //webhook routes
             endpointRouteBuilder.MapControllerRoute(MailChimpDefaults.BatchWebhookRoute,
-                "Plugins/MailChimp/BatchWebhook", new { controller = "MailChimp", action = "BatchWebhook" });
+                "Plugins/MailChimp/BatchWebhook", 
+                new { controller = "MailChimp", action = "BatchWebhook" });
 
             endpointRouteBuilder.MapControllerRoute(MailChimpDefaults.WebhookRoute,
-                "Plugins/MailChimp/Webhook", new { controller = "MailChimp", action = "WebHook" });
+                "Plugins/MailChimp/Webhook", 
+                new { controller = "MailChimp", action = "WebHook" });
         }
 
         /// <summary>

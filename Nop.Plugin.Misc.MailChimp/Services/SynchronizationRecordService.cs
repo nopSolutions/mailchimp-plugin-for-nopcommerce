@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Nop.Data;
 using Nop.Plugin.Misc.MailChimp.Domain;
 
@@ -42,9 +43,9 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// </summary>
         /// <param name="recordId">Synchronization record identifier</param>
         /// <returns>Synchronization record</returns>
-        public virtual MailChimpSynchronizationRecord GetRecordById(int recordId)
+        public virtual async Task<MailChimpSynchronizationRecord> GetRecordByIdAsync(int recordId)
         {
-            return recordId == 0 ? null : _synchronizationRecordRepository.GetById(recordId);
+            return recordId == 0 ? null : await _synchronizationRecordRepository.GetByIdAsync(recordId);
         }
 
         /// <summary>
@@ -67,7 +68,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// <param name="operationType">Operation type</param>
         /// <param name="email">Email (only for subscriptions)</param>
         /// <param name="productId">Product identifier (for product attributes, attribute values and attribute combinations)</param>
-        public virtual void CreateOrUpdateRecord(EntityType entityType, int entityId, OperationType operationType, string email = null, int productId = 0)
+        public virtual async Task CreateOrUpdateRecordAsync(EntityType entityType, int entityId, OperationType operationType, string email = null, int productId = 0)
         {
             //whether the synchronization record with passed parameters already exists
             var existingRecord = _synchronizationRecordRepository.Table
@@ -75,7 +76,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             if (existingRecord == null)
             {
                 //create the new one if not exists
-                InsertRecord(new MailChimpSynchronizationRecord
+                await InsertRecordAsync(new MailChimpSynchronizationRecord
                 {
                     EntityType = entityType,
                     EntityId = entityId,
@@ -91,14 +92,14 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             {
                 case OperationType.Create:
                     if (operationType == OperationType.Delete)
-                        DeleteRecord(existingRecord);
+                        await DeleteRecordAsync(existingRecord);
                     return;
 
                 case OperationType.Update:
                     if (operationType == OperationType.Delete)
                     {
                         existingRecord.OperationType = OperationType.Delete;
-                        UpdateRecord(existingRecord);
+                        await UpdateRecordAsync(existingRecord);
                     }
                     return;
 
@@ -106,7 +107,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                     if (operationType == OperationType.Create)
                     {
                         existingRecord.OperationType = OperationType.Update;
-                        UpdateRecord(existingRecord);
+                        await UpdateRecordAsync(existingRecord);
                     }
                     return;
             }
@@ -116,54 +117,54 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Insert a synchronization record
         /// </summary>
         /// <param name="record">Synchronization record</param>
-        public virtual void InsertRecord(MailChimpSynchronizationRecord record)
+        public virtual async Task InsertRecordAsync(MailChimpSynchronizationRecord record)
         {
             if (record == null)
                 throw new ArgumentNullException(nameof(record));
 
-            _synchronizationRecordRepository.Insert(record);
+            await _synchronizationRecordRepository.InsertAsync(record);
         }
 
         /// <summary>
         /// Update the synchronization record
         /// </summary>
         /// <param name="record">Synchronization record</param>
-        public virtual void UpdateRecord(MailChimpSynchronizationRecord record)
+        public virtual async Task UpdateRecordAsync(MailChimpSynchronizationRecord record)
         {
             if (record == null)
                 throw new ArgumentNullException(nameof(record));
 
-            _synchronizationRecordRepository.Update(record);
+            await _synchronizationRecordRepository.UpdateAsync(record);
         }
 
         /// <summary>
         /// Delete a synchronization record
         /// </summary>
         /// <param name="record">Synchronization record</param>
-        public virtual void DeleteRecord(MailChimpSynchronizationRecord record)
+        public virtual async Task DeleteRecordAsync(MailChimpSynchronizationRecord record)
         {
             if (record == null)
                 throw new ArgumentNullException(nameof(record));
 
-            _synchronizationRecordRepository.Delete(record);
+            await _synchronizationRecordRepository.DeleteAsync(record);
         }
 
         /// <summary>
         /// Delete synchronization records by entity type
         /// </summary>
         /// <param name="entityType">Entity type</param>
-        public virtual void DeleteRecordsByEntityType(EntityType entityType)
+        public virtual async Task DeleteRecordsByEntityTypeAsync(EntityType entityType)
         {
             var records = GetAllRecords().Where(record => record.EntityType == entityType);
-            _synchronizationRecordRepository.Delete(records);
+            await _synchronizationRecordRepository.DeleteAsync(records.ToList());
         }
 
         /// <summary>
         /// Delete all synchronization records
         /// </summary>
-        public virtual void ClearRecords()
+        public virtual async Task ClearRecordsAsync()
         {
-            _synchronizationRecordRepository.Delete(GetAllRecords());
+            await _synchronizationRecordRepository.DeleteAsync(GetAllRecords());
         }
 
         #endregion

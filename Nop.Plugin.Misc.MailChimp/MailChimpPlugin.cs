@@ -8,6 +8,7 @@ using Nop.Services.Configuration;
 using Nop.Services.Localization;
 using Nop.Services.Plugins;
 using Nop.Services.Tasks;
+using Task = System.Threading.Tasks.Task;
 
 namespace Nop.Plugin.Misc.MailChimp
 {
@@ -57,10 +58,11 @@ namespace Nop.Plugin.Misc.MailChimp
         /// <summary>
         /// Install the plugin
         /// </summary>
-        public override void Install()
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public override async Task InstallAsync()
         {
             //settings
-            _settingService.SaveSetting(new MailChimpSettings
+            await _settingService.SaveSettingAsync(new MailChimpSettings
             {
                 ListId = Guid.Empty.ToString(),
                 StoreIdMask = MailChimpDefaults.DefaultStoreIdMask,
@@ -68,9 +70,9 @@ namespace Nop.Plugin.Misc.MailChimp
             });
 
             //synchronization task
-            if (_scheduleTaskService.GetTaskByType(MailChimpDefaults.SynchronizationTask) == null)
+            if (await _scheduleTaskService.GetTaskByTypeAsync(MailChimpDefaults.SynchronizationTask) == null)
             {
-                _scheduleTaskService.InsertTask(new ScheduleTask
+                await _scheduleTaskService.InsertTaskAsync(new ScheduleTask
                 {
                     Type = MailChimpDefaults.SynchronizationTask,
                     Name = MailChimpDefaults.SynchronizationTaskName,
@@ -79,7 +81,7 @@ namespace Nop.Plugin.Misc.MailChimp
             }
 
             //locales
-            _localizationService.AddPluginLocaleResource(new Dictionary<string, string>
+            await _localizationService.AddLocaleResourceAsync(new Dictionary<string, string>
             {
                 ["Plugins.Misc.MailChimp.Fields.AccountInfo"] = "Account information",
                 ["Plugins.Misc.MailChimp.Fields.AccountInfo.Hint"] = "Display MailChimp account information.",
@@ -101,30 +103,31 @@ namespace Nop.Plugin.Misc.MailChimp
                 ["Plugins.Misc.MailChimp.Synchronization.Started"] = "Synchronization is in progress",
                 ["Plugins.Misc.MailChimp.Webhook.Warning"] = "Webhook was not created (you'll not be able to get unsubscribed users)"
             });
-            base.Install();
+            await base.InstallAsync();
         }
 
         /// <summary>
         /// Uninstall the plugin
         /// </summary>
-        public override void Uninstall()
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public override async Task UninstallAsync()
         {
             //webhooks
-            _mailChimpManager.DeleteBatchWebhook().Wait();
-            _mailChimpManager.DeleteWebhooks().Wait();
+            await _mailChimpManager.DeleteBatchWebhookAsync();
+            await _mailChimpManager.DeleteWebhooksAsync();
 
             //synchronization task
-            var task = _scheduleTaskService.GetTaskByType(MailChimpDefaults.SynchronizationTask);
+            var task = await _scheduleTaskService.GetTaskByTypeAsync(MailChimpDefaults.SynchronizationTask);
             if (task != null)
-                _scheduleTaskService.DeleteTask(task);
+                await _scheduleTaskService.DeleteTaskAsync(task);
 
             //settings
-            _settingService.DeleteSetting<MailChimpSettings>();
+            await _settingService.DeleteSettingAsync<MailChimpSettings>();
 
             //locales
-            _localizationService.DeletePluginLocaleResources("Plugins.Misc.MailChimp");
+            await _localizationService.DeleteLocaleResourcesAsync("Plugins.Misc.MailChimp");
 
-            base.Uninstall();
+            await base.UninstallAsync();
         }
 
         #endregion

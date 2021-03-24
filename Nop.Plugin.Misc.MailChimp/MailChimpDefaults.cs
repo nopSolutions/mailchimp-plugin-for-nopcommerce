@@ -15,12 +15,12 @@ namespace Nop.Plugin.Misc.MailChimp
         /// <summary>
         /// Cache key to store the operation number of a synchronization
         /// </summary>
-        public static CacheKey OperationNumberCacheKey => new CacheKey("MailChimp-synchronization-operations");
+        public static CacheKey OperationNumberCacheKey => new("MailChimp-synchronization-operations");
 
         /// <summary>
         /// Cache key to store handled batches of a synchronization
         /// </summary>
-        public static CacheKey SynchronizationBatchesCacheKey => new CacheKey("MailChimp-synchronization-batches");
+        public static CacheKey SynchronizationBatchesCacheKey => new("MailChimp-synchronization-batches");
 
         /// <summary>
         /// Default mask of store identifier that uniquely identifying the store in MailChimp E-Commerce

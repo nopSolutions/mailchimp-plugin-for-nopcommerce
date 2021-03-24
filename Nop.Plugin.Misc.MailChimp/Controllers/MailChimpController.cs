@@ -11,7 +11,6 @@ using Nop.Core.Domain.Tasks;
 using Nop.Plugin.Misc.MailChimp.Domain;
 using Nop.Plugin.Misc.MailChimp.Models;
 using Nop.Plugin.Misc.MailChimp.Services;
-using Nop.Services.Caching;
 using Nop.Services.Configuration;
 using Nop.Services.Localization;
 using Nop.Services.Messages;
@@ -29,7 +28,6 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
     {
         #region Fields
 
-        private readonly ICacheKeyService _cacheKeyService;
         private readonly ILocalizationService _localizationService;
         private readonly INotificationService _notificationService;
         private readonly IScheduleTaskService _scheduleTaskService;
@@ -45,7 +43,6 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         #region Ctor
 
         public MailChimpController(
-            ICacheKeyService cacheKeyService,
             ILocalizationService localizationService,
             INotificationService notificationService,
             IScheduleTaskService scheduleTaskService,
@@ -56,7 +53,6 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
             ISynchronizationRecordService synchronizationRecordService,
             MailChimpManager mailChimpManager)
         {
-            _cacheKeyService = cacheKeyService;
             _localizationService = localizationService;
             _notificationService = notificationService;
             _scheduleTaskService = scheduleTaskService;
@@ -77,8 +73,8 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         public async Task<IActionResult> Configure()
         {
             //load settings for a chosen store scope
-            var storeId = _storeContext.ActiveStoreScopeConfiguration;
-            var mailChimpSettings = _settingService.LoadSetting<MailChimpSettings>(storeId);
+            var storeId = await _storeContext.GetActiveStoreScopeConfigurationAsync();
+            var mailChimpSettings = await _settingService.LoadSettingAsync<MailChimpSettings>(storeId);
 
             //prepare model
             var model = new ConfigurationModel
@@ -86,20 +82,20 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
                 ApiKey = mailChimpSettings.ApiKey,
                 PassEcommerceData = mailChimpSettings.PassEcommerceData,
                 ListId = mailChimpSettings.ListId,
-                ListId_OverrideForStore = storeId > 0 && _settingService.SettingExists(mailChimpSettings, settings => settings.ListId, storeId),
+                ListId_OverrideForStore = storeId > 0 && await _settingService.SettingExistsAsync(mailChimpSettings, settings => settings.ListId, storeId),
                 ActiveStoreScopeConfiguration = storeId
             };
 
             //check whether synchronization is in progress
-            model.SynchronizationStarted = _staticCacheManager.Get<int?>(_cacheKeyService.PrepareKeyForDefaultCache(MailChimpDefaults.OperationNumberCacheKey), () => null).HasValue;
+            model.SynchronizationStarted = (await _staticCacheManager.GetAsync(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.OperationNumberCacheKey), () => (int?)null)).HasValue;
 
             //prepare account info
             if (!string.IsNullOrEmpty(mailChimpSettings.ApiKey))
-                model.AccountInfo = await _mailChimpManager.GetAccountInfo();
+                model.AccountInfo = await _mailChimpManager.GetAccountInfoAsync();
 
             //prepare available lists
             if (!string.IsNullOrEmpty(mailChimpSettings.ApiKey))
-                model.AvailableLists = await _mailChimpManager.GetAvailableLists() ?? new List<SelectListItem>();
+                model.AvailableLists = await _mailChimpManager.GetAvailableListsAsync() ?? new List<SelectListItem>();
 
             var defaultListId = mailChimpSettings.ListId;
             if (!model.AvailableLists.Any())
@@ -107,7 +103,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
                 //add the special item for 'there are no lists' with empty guid value
                 model.AvailableLists.Add(new SelectListItem
                 {
-                    Text = _localizationService.GetResource("Plugins.Misc.MailChimp.Fields.List.NotExist"),
+                    Text = await _localizationService.GetResourceAsync("Plugins.Misc.MailChimp.Fields.List.NotExist"),
                     Value = Guid.Empty.ToString()
                 });
                 defaultListId = Guid.Empty.ToString();
@@ -118,10 +114,10 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
             //set the default list
             model.ListId = defaultListId;
             mailChimpSettings.ListId = defaultListId;
-            _settingService.SaveSettingOverridablePerStore(mailChimpSettings, settings => settings.ListId, model.ListId_OverrideForStore, storeId);
+            await _settingService.SaveSettingOverridablePerStoreAsync(mailChimpSettings, settings => settings.ListId, model.ListId_OverrideForStore, storeId);
 
             //synchronization task
-            var task = _scheduleTaskService.GetTaskByType(MailChimpDefaults.SynchronizationTask);
+            var task = await _scheduleTaskService.GetTaskByTypeAsync(MailChimpDefaults.SynchronizationTask);
             if (task != null)
             {
                 model.SynchronizationPeriod = task.Seconds / 60 / 60;
@@ -141,38 +137,38 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
                 return await Configure();
 
             //load settings for a chosen store scope
-            var storeId = _storeContext.ActiveStoreScopeConfiguration;
-            var mailChimpSettings = _settingService.LoadSetting<MailChimpSettings>(storeId);
+            var storeId = await _storeContext.GetActiveStoreScopeConfigurationAsync();
+            var mailChimpSettings = await _settingService.LoadSettingAsync<MailChimpSettings>(storeId);
 
             //update stores if the list was changed
             if (!string.IsNullOrEmpty(model.ListId) && !model.ListId.Equals(Guid.Empty.ToString()) && !model.ListId.Equals(mailChimpSettings.ListId))
             {
-                (storeId > 0 ? new[] { storeId } : _storeService.GetAllStores().Select(store => store.Id)).ToList()
-                    .ForEach(id => _synchronizationRecordService.CreateOrUpdateRecord(EntityType.Store, id, OperationType.Update));
+                (storeId > 0 ? new[] { storeId } : (await _storeService.GetAllStoresAsync()).Select(store => store.Id)).ToList()
+                    .ForEach(id => _synchronizationRecordService.CreateOrUpdateRecordAsync(EntityType.Store, id, OperationType.Update));
             }
 
             //prepare webhook
             if (!string.IsNullOrEmpty(mailChimpSettings.ApiKey))
             {
                 var listId = !string.IsNullOrEmpty(model.ListId) && !model.ListId.Equals(Guid.Empty.ToString()) ? model.ListId : string.Empty;
-                var webhookPrepared = await _mailChimpManager.PrepareWebhook(listId);
+                var webhookPrepared = await _mailChimpManager.PrepareWebhookAsync(listId);
 
                 //display warning if webhook is not prepared
                 if (!webhookPrepared && !string.IsNullOrEmpty(listId))
-                    _notificationService.WarningNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Webhook.Warning"));
+                    _notificationService.WarningNotification(await _localizationService.GetResourceAsync("Plugins.Misc.MailChimp.Webhook.Warning"));
             }
 
             //save settings
-            mailChimpSettings.ApiKey = model.ApiKey;
+            mailChimpSettings.ApiKey = model.ApiKey.Trim();
             mailChimpSettings.PassEcommerceData = model.PassEcommerceData;
             mailChimpSettings.ListId = model.ListId;
-            _settingService.SaveSetting(mailChimpSettings, x => x.ApiKey, clearCache: false);
-            _settingService.SaveSetting(mailChimpSettings, x => x.PassEcommerceData, clearCache: false);
-            _settingService.SaveSettingOverridablePerStore(mailChimpSettings, x => x.ListId, model.ListId_OverrideForStore, storeId, false);
-            _settingService.ClearCache();
+            await _settingService.SaveSettingAsync(mailChimpSettings, x => x.ApiKey, clearCache: false);
+            await _settingService.SaveSettingAsync(mailChimpSettings, x => x.PassEcommerceData, clearCache: false);
+            await _settingService.SaveSettingOverridablePerStoreAsync(mailChimpSettings, x => x.ListId, model.ListId_OverrideForStore, storeId, false);
+            await _settingService.ClearCacheAsync();
 
             //create or update synchronization task
-            var task = _scheduleTaskService.GetTaskByType(MailChimpDefaults.SynchronizationTask);
+            var task = await _scheduleTaskService.GetTaskByTypeAsync(MailChimpDefaults.SynchronizationTask);
             if (task == null)
             {
                 task = new ScheduleTask
@@ -181,7 +177,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
                     Name = MailChimpDefaults.SynchronizationTaskName,
                     Seconds = MailChimpDefaults.DefaultSynchronizationPeriod * 60 * 60
                 };
-                _scheduleTaskService.InsertTask(task);
+                await _scheduleTaskService.InsertTaskAsync(task);
             }
 
             var synchronizationPeriodInSeconds = model.SynchronizationPeriod * 60 * 60;
@@ -191,11 +187,11 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
                 //task parameters was changed
                 task.Enabled = synchronizationEnabled;
                 task.Seconds = synchronizationPeriodInSeconds;
-                _scheduleTaskService.UpdateTask(task);
-                _notificationService.WarningNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Fields.AutoSynchronization.Restart"));
+                await _scheduleTaskService.UpdateTaskAsync(task);
+                _notificationService.WarningNotification(await _localizationService.GetResourceAsync("Plugins.Misc.MailChimp.Fields.AutoSynchronization.Restart"));
             }
 
-            _notificationService.SuccessNotification(_localizationService.GetResource("Admin.Plugins.Saved"));
+            _notificationService.SuccessNotification(await _localizationService.GetResourceAsync("Admin.Plugins.Saved"));
 
             return await Configure();
         }
@@ -207,43 +203,43 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         public async Task<IActionResult> Synchronization()
         {
             //ensure that user list for the synchronization is selected
-            var mailChimpSettings = _settingService.LoadSetting<MailChimpSettings>();
+            var mailChimpSettings = await _settingService.LoadSettingAsync<MailChimpSettings>();
             if (string.IsNullOrEmpty(mailChimpSettings.ListId) || mailChimpSettings.ListId.Equals(Guid.Empty.ToString()))
             {
-                _notificationService.ErrorNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Error"));
+                _notificationService.ErrorNotification(await _localizationService.GetResourceAsync("Plugins.Misc.MailChimp.Synchronization.Error"));
                 return await Configure();
             }
 
             //start the synchronization
-            var operationNumber = await _mailChimpManager.Synchronize(true);
+            var operationNumber = await _mailChimpManager.SynchronizeAsync(true);
             if (operationNumber.HasValue)
             {
                 //cache number of operations
-                _staticCacheManager.Remove(MailChimpDefaults.SynchronizationBatchesCacheKey);
-                _staticCacheManager.Set(_cacheKeyService.PrepareKeyForDefaultCache(MailChimpDefaults.OperationNumberCacheKey), operationNumber.Value);
+                await _staticCacheManager.RemoveAsync(MailChimpDefaults.SynchronizationBatchesCacheKey);
+                await _staticCacheManager.SetAsync(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.OperationNumberCacheKey), operationNumber.Value);
 
-                _notificationService.SuccessNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Started"));
+                _notificationService.SuccessNotification(await _localizationService.GetResourceAsync("Plugins.Misc.MailChimp.Synchronization.Started"));
             }
             else
-                _notificationService.ErrorNotification(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Error"));
+                _notificationService.ErrorNotification(await _localizationService.GetResourceAsync("Plugins.Misc.MailChimp.Synchronization.Error"));
 
             return await Configure();
         }
 
         [AuthorizeAdmin]
         [Area(AreaNames.Admin)]
-        public IActionResult IsSynchronizationComplete()
+        public async Task<IActionResult> IsSynchronizationComplete()
         {
             //try to get number of operations and already handled batches
-            var operationNumber = _staticCacheManager.Get<int?>(_cacheKeyService.PrepareKeyForDefaultCache(MailChimpDefaults.OperationNumberCacheKey), () => null);
-            var batchesInfo = _staticCacheManager.Get(_cacheKeyService.PrepareKeyForDefaultCache(MailChimpDefaults.SynchronizationBatchesCacheKey), () => new Dictionary<string, int>());
+            var operationNumber = await _staticCacheManager.GetAsync(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.OperationNumberCacheKey), () => (int?)null);
+            var batchesInfo = _staticCacheManager.Get(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.SynchronizationBatchesCacheKey), () => new Dictionary<string, int>());
 
             //check whether the synchronization is finished
             if (!operationNumber.HasValue || operationNumber.Value == batchesInfo.Values.Sum())
             {
                 //clear cached values
-                _staticCacheManager.Remove(MailChimpDefaults.OperationNumberCacheKey);
-                _staticCacheManager.Remove(MailChimpDefaults.SynchronizationBatchesCacheKey);
+                await _staticCacheManager.RemoveAsync(MailChimpDefaults.OperationNumberCacheKey);
+                await _staticCacheManager.RemoveAsync(MailChimpDefaults.SynchronizationBatchesCacheKey);
 
                 return Json(true);
             }
@@ -264,17 +260,17 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
                 return BadRequest();
 
             //try to get already handled batches
-            var batchesInfo = _staticCacheManager.Get(_cacheKeyService.PrepareKeyForDefaultCache(MailChimpDefaults.SynchronizationBatchesCacheKey), () => new Dictionary<string, int>());
+            var batchesInfo = await _staticCacheManager.GetAsync(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.SynchronizationBatchesCacheKey), () => new Dictionary<string, int>());
 
             //handle batch webhook
-            var (id, completedOperationNumber) = await _mailChimpManager.HandleBatchWebhook(Request.Form, batchesInfo);
+            var (id, completedOperationNumber) = await _mailChimpManager.HandleBatchWebhookAsync(Request.Form, batchesInfo);
             if (!string.IsNullOrEmpty(id) && completedOperationNumber.HasValue)
             {
                 if (!batchesInfo.ContainsKey(id))
                 {
                     //update cached value
                     batchesInfo.Add(id, completedOperationNumber.Value);
-                    _staticCacheManager.Set(_cacheKeyService.PrepareKeyForDefaultCache(MailChimpDefaults.SynchronizationBatchesCacheKey), batchesInfo);
+                    await _staticCacheManager.SetAsync(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.SynchronizationBatchesCacheKey), batchesInfo);
                 }
                 return Ok();
             }
@@ -295,7 +291,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
                 return BadRequest();
 
             //handle webhook
-            var success = await _mailChimpManager.HandleWebhook(Request.Form);
+            var success = await _mailChimpManager.HandleWebhookAsync(Request.Form);
             return success ? Ok() : (IActionResult)BadRequest();
         }
 

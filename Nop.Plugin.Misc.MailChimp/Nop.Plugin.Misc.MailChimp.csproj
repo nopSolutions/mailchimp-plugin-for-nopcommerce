@@ -1,11 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <TargetFramework>net5.0</TargetFramework>
     <Copyright>Copyright © Nop Solutions, Ltd</Copyright> 
     <Company>Nop Solutions, Ltd</Company> 
     <Authors>Nop Solutions, Ltd</Authors> 
-    <PackageLicenseUrl></PackageLicenseUrl> 
+    <PackageLicenseUrl>https://github.com/nopSolutions/mailchimp-plugin-for-nopcommerce/blob/nopCommerce-4.40/LICENSE.md</PackageLicenseUrl> 
     <PackageProjectUrl>https://www.nopcommerce.com/mailchimp-synchronization-plugin</PackageProjectUrl> 
     <RepositoryUrl>https://github.com/nopSolutions/mailchimp-plugin-for-nopcommerce</RepositoryUrl> 
     <RepositoryType>Git</RepositoryType>

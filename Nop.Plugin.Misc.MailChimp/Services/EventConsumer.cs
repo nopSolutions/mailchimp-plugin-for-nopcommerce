@@ -1,4 +1,5 @@
 ﻿using System.Linq;
+using System.Threading.Tasks;
 using Nop.Core.Domain.Catalog;
 using Nop.Core.Domain.Customers;
 using Nop.Core.Domain.Messages;
@@ -85,7 +86,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// <param name="productId">Product identifier</param>
         private void AddRecord(EntityType entityType, int? id, OperationType operationType, string email = null, int? productId = null)
         {
-            _synchronizationRecordService.CreateOrUpdateRecord(entityType, id ?? 0, operationType, email, productId ?? 0);
+            _synchronizationRecordService.CreateOrUpdateRecordAsync(entityType, id ?? 0, operationType, email, productId ?? 0);
         }
 
         #endregion
@@ -96,57 +97,62 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the store inserted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityInsertedEvent<Store> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(EntityInsertedEvent<Store> eventMessage)
         {
-            if (eventMessage.Entity == null)
-                return;
+            if (eventMessage.Entity != null)
+                AddRecord(EntityType.Store, eventMessage.Entity.Id, OperationType.Create);
 
-            AddRecord(EntityType.Store, eventMessage.Entity.Id, OperationType.Create);
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Handle the store updated event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityUpdatedEvent<Store> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(EntityUpdatedEvent<Store> eventMessage)
         {
-            if (eventMessage.Entity == null)
-                return;
+            if (eventMessage.Entity != null)
+                AddRecord(EntityType.Store, eventMessage.Entity.Id, OperationType.Update);
 
-            AddRecord(EntityType.Store, eventMessage.Entity.Id, OperationType.Update);
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Handle the store deleted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityDeletedEvent<Store> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(EntityDeletedEvent<Store> eventMessage)
         {
-            if (eventMessage.Entity == null)
-                return;
+            if (eventMessage.Entity != null)
+                AddRecord(EntityType.Store, eventMessage.Entity.Id, OperationType.Delete);
 
-            AddRecord(EntityType.Store, eventMessage.Entity.Id, OperationType.Delete);
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Handle the customer registered event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(CustomerRegisteredEvent eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(CustomerRegisteredEvent eventMessage)
         {
-            if (eventMessage.Customer == null)
-                return;
+            if (eventMessage.Customer != null)
+                AddRecord(EntityType.Customer, eventMessage.Customer.Id, OperationType.Create);
 
-            AddRecord(EntityType.Customer, eventMessage.Customer.Id, OperationType.Create);
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Handle the customer inserted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityInsertedEvent<Customer> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public async Task HandleEventAsync(EntityInsertedEvent<Customer> eventMessage)
         {
-            if (eventMessage.Entity == null || _customerService.IsGuest(eventMessage.Entity))
+            if (eventMessage.Entity == null || await _customerService.IsGuestAsync(eventMessage.Entity))
                 return;
 
             AddRecord(EntityType.Customer, eventMessage.Entity.Id, OperationType.Create);
@@ -156,9 +162,10 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the customer updated event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityUpdatedEvent<Customer> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public async Task HandleEventAsync(EntityUpdatedEvent<Customer> eventMessage)
         {
-            if (eventMessage.Entity == null || _customerService.IsGuest(eventMessage.Entity))
+            if (eventMessage.Entity == null || await _customerService.IsGuestAsync(eventMessage.Entity))
                 return;
 
             var operationType = eventMessage.Entity.Deleted ? OperationType.Delete : OperationType.Update;
@@ -169,89 +176,98 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the customer unsubscribed event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EmailUnsubscribedEvent eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(EmailUnsubscribedEvent eventMessage)
         {
-            if (eventMessage.Subscription == null)
-                return;
+            if (eventMessage.Subscription != null)
+                AddRecord(EntityType.Subscription, null, OperationType.Delete, eventMessage.Subscription.Email);
 
-            AddRecord(EntityType.Subscription, null, OperationType.Delete, eventMessage.Subscription.Email);
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Handle the newsletter subscription inserted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityInsertedEvent<NewsLetterSubscription> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(EntityInsertedEvent<NewsLetterSubscription> eventMessage)
         {
-            if (eventMessage.Entity == null)
-                return;
+            if (eventMessage.Entity != null)
+                AddRecord(EntityType.Subscription, eventMessage.Entity.Id, OperationType.Create);
 
-            AddRecord(EntityType.Subscription, eventMessage.Entity.Id, OperationType.Create);
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Handle the newsletter subscription updated event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityUpdatedEvent<NewsLetterSubscription> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(EntityUpdatedEvent<NewsLetterSubscription> eventMessage)
         {
-            if (eventMessage.Entity == null)
-                return;
+            if (eventMessage.Entity != null)
+                AddRecord(EntityType.Subscription, eventMessage.Entity.Id, OperationType.Update);
 
-            AddRecord(EntityType.Subscription, eventMessage.Entity.Id, OperationType.Update);
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Handle the newsletter subscription deleted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityDeletedEvent<NewsLetterSubscription> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(EntityDeletedEvent<NewsLetterSubscription> eventMessage)
         {
-            if (eventMessage.Entity == null)
-                return;
+            if (eventMessage.Entity != null)
+                AddRecord(EntityType.Subscription, eventMessage.Entity.Id, OperationType.Delete, eventMessage.Entity.Email);
 
-            AddRecord(EntityType.Subscription, eventMessage.Entity.Id, OperationType.Delete, eventMessage.Entity.Email);
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Handle the product inserted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityInsertedEvent<Product> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(EntityInsertedEvent<Product> eventMessage)
         {
-            if (eventMessage.Entity == null)
-                return;
-
-            AddRecord(EntityType.Product, eventMessage.Entity.Id, OperationType.Create);
+            if (eventMessage.Entity != null)
+                AddRecord(EntityType.Product, eventMessage.Entity.Id, OperationType.Create);
+            
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Handle the product updated event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityUpdatedEvent<Product> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(EntityUpdatedEvent<Product> eventMessage)
         {
-            if (eventMessage.Entity == null)
-                return;
+            if (eventMessage.Entity != null)
+            {
+                var operationType = eventMessage.Entity.Deleted ? OperationType.Delete : OperationType.Update;
+                AddRecord(EntityType.Product, eventMessage.Entity.Id, operationType);
+            }
 
-            var operationType = eventMessage.Entity.Deleted ? OperationType.Delete : OperationType.Update;
-            AddRecord(EntityType.Product, eventMessage.Entity.Id, operationType);
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Handle the product attribute mapping deleted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityDeletedEvent<ProductAttributeMapping> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public async Task HandleEventAsync(EntityDeletedEvent<ProductAttributeMapping> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
 
             //update combinations related with deleted product attribute mapping
-            var combinations = _productAttributeService.GetAllProductAttributeCombinations(eventMessage.Entity.ProductId)
-                .Where(combination => _productAttributeParser.ParseProductAttributeMappings(combination.AttributesXml)
+            var combinations = (await _productAttributeService.GetAllProductAttributeCombinationsAsync(eventMessage.Entity.ProductId))
+                .WhereAwait(async combination => (await _productAttributeParser.ParseProductAttributeMappingsAsync(combination.AttributesXml))
                     .Any(productAttributeMapping => productAttributeMapping.Id == eventMessage.Entity.Id));
-            foreach (var combination in combinations)
+            await foreach (var combination in combinations)
             {
                 AddRecord(EntityType.AttributeCombination, combination.Id, OperationType.Update);
             }
@@ -261,22 +277,23 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the product attribute deleted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityDeletedEvent<ProductAttribute> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public async Task HandleEventAsync(EntityDeletedEvent<ProductAttribute> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
 
             //get associated product attribute mapping objects
-            var productAttributeMappings = _productService.GetProductsByProductAtributeId(eventMessage.Entity.Id)
-                .SelectMany(product => _productAttributeService.GetProductAttributeMappingsByProductId(product.Id)
+            var productAttributeMappings = (await _productService.GetProductsByProductAtributeIdAsync(eventMessage.Entity.Id))
+                .SelectManyAwait(async product => (await _productAttributeService.GetProductAttributeMappingsByProductIdAsync(product.Id))
                 .Where(attribute => attribute.ProductId > 0 && attribute.ProductAttributeId == eventMessage.Entity.Id));
-            foreach (var productAttributeMapping in productAttributeMappings)
+            await foreach (var productAttributeMapping in productAttributeMappings)
             {
                 //update combinations related with deleted product attribute
-                var combinations = _productAttributeService.GetAllProductAttributeCombinations(productAttributeMapping.ProductId)
-                    .Where(combination => _productAttributeParser.ParseProductAttributeMappings(combination.AttributesXml)
+                var combinations = (await _productAttributeService.GetAllProductAttributeCombinationsAsync(productAttributeMapping.ProductId))
+                    .WhereAwait(async combination => (await _productAttributeParser.ParseProductAttributeMappingsAsync(combination.AttributesXml))
                         .Any(mapping => mapping.Id == productAttributeMapping.Id));
-                foreach (var combination in combinations)
+                await foreach (var combination in combinations)
                 {
                     AddRecord(EntityType.AttributeCombination, combination.Id, OperationType.Update);
                 }
@@ -287,21 +304,22 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the product attribute value updated event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityUpdatedEvent<ProductAttributeValue> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public async Task HandleEventAsync(EntityUpdatedEvent<ProductAttributeValue> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
 
             //get associated product attribute mapping object
-            var productAttributeMapping = _productAttributeService.GetProductAttributeMappingById(eventMessage.Entity.ProductAttributeMappingId);
+            var productAttributeMapping = await _productAttributeService.GetProductAttributeMappingByIdAsync(eventMessage.Entity.ProductAttributeMappingId);
             if (productAttributeMapping == null)
                 return;
 
             //update combinations related with updated product attribute value
-            var combinations = _productAttributeService.GetAllProductAttributeCombinations(productAttributeMapping.ProductId)
-                .Where(combination => _productAttributeParser.ParseProductAttributeValues(combination.AttributesXml, productAttributeMapping.Id)
+            var combinations = (await _productAttributeService.GetAllProductAttributeCombinationsAsync(productAttributeMapping.ProductId))
+                .WhereAwait(async combination => (await _productAttributeParser.ParseProductAttributeValuesAsync(combination.AttributesXml, productAttributeMapping.Id))
                     .Any(value => value.Id == eventMessage.Entity.Id));
-            foreach (var combination in combinations)
+            await foreach (var combination in combinations)
             {
                 AddRecord(EntityType.AttributeCombination, combination.Id, OperationType.Update);
             }
@@ -311,21 +329,22 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the product attribute value deleted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityDeletedEvent<ProductAttributeValue> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public async Task HandleEventAsync(EntityDeletedEvent<ProductAttributeValue> eventMessage)
         {
             if (eventMessage.Entity == null)
                 return;
 
             //get associated product attribute mapping object
-            var productAttributeMapping = _productAttributeService.GetProductAttributeMappingById(eventMessage.Entity.ProductAttributeMappingId);
+            var productAttributeMapping = await _productAttributeService.GetProductAttributeMappingByIdAsync(eventMessage.Entity.ProductAttributeMappingId);
             if (productAttributeMapping == null)
                 return;
 
             //update combinations related with deleted product attribute value
-            var combinations = _productAttributeService.GetAllProductAttributeCombinations(productAttributeMapping.ProductId)
-                .Where(combination => _productAttributeParser.ParseProductAttributeValues(combination.AttributesXml, productAttributeMapping.Id)
+            var combinations = (await _productAttributeService.GetAllProductAttributeCombinationsAsync(productAttributeMapping.ProductId))
+                .WhereAwait(async combination => (await _productAttributeParser.ParseProductAttributeValuesAsync(combination.AttributesXml, productAttributeMapping.Id))
                     .Any(value => value.Id == eventMessage.Entity.Id));
-            foreach (var combination in combinations)
+            await foreach (var combination in combinations)
             {
                 AddRecord(EntityType.AttributeCombination, combination.Id, OperationType.Update);
             }
@@ -335,61 +354,68 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// Handle the product attribute combination inserted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityInsertedEvent<ProductAttributeCombination> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(EntityInsertedEvent<ProductAttributeCombination> eventMessage)
         {
-            if (eventMessage.Entity == null)
-                return;
+            if (eventMessage.Entity != null)
+                AddRecord(EntityType.AttributeCombination, eventMessage.Entity.Id, OperationType.Create);
 
-            AddRecord(EntityType.AttributeCombination, eventMessage.Entity.Id, OperationType.Create);
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Handle the product attribute combination updated event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityUpdatedEvent<ProductAttributeCombination> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(EntityUpdatedEvent<ProductAttributeCombination> eventMessage)
         {
-            if (eventMessage.Entity == null)
-                return;
+            if (eventMessage.Entity != null)
+                AddRecord(EntityType.AttributeCombination, eventMessage.Entity.Id, OperationType.Update);
 
-            AddRecord(EntityType.AttributeCombination, eventMessage.Entity.Id, OperationType.Update);
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Handle the product attribute combination deleted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityDeletedEvent<ProductAttributeCombination> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(EntityDeletedEvent<ProductAttributeCombination> eventMessage)
         {
-            if (eventMessage.Entity == null)
-                return;
+            if (eventMessage.Entity != null)
+                AddRecord(EntityType.AttributeCombination, eventMessage.Entity.Id, OperationType.Delete, productId: eventMessage.Entity.ProductId);
 
-            AddRecord(EntityType.AttributeCombination, eventMessage.Entity.Id, OperationType.Delete, productId: eventMessage.Entity.ProductId);
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Handle the order inserted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityInsertedEvent<Order> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(EntityInsertedEvent<Order> eventMessage)
         {
-            if (eventMessage.Entity == null)
-                return;
+            if (eventMessage.Entity != null)
+                AddRecord(EntityType.Order, eventMessage.Entity.Id, OperationType.Create);
 
-            AddRecord(EntityType.Order, eventMessage.Entity.Id, OperationType.Create);
+            return Task.CompletedTask;
         }
 
         /// <summary>
         /// Handle the order inserted event
         /// </summary>
         /// <param name="eventMessage">Event message</param>
-        public void HandleEvent(EntityUpdatedEvent<Order> eventMessage)
+        /// <returns>A task that represents the asynchronous operation</returns>
+        public Task HandleEventAsync(EntityUpdatedEvent<Order> eventMessage)
         {
-            if (eventMessage.Entity == null)
-                return;
+            if (eventMessage.Entity != null)
+            {
+                var operationType = eventMessage.Entity.Deleted ? OperationType.Delete : OperationType.Update;
+                AddRecord(EntityType.Order, eventMessage.Entity.Id, operationType);
+            }
 
-            var operationType = eventMessage.Entity.Deleted ? OperationType.Delete : OperationType.Update;
-            AddRecord(EntityType.Order, eventMessage.Entity.Id, operationType);
+            return Task.CompletedTask;
         }
 
         #endregion

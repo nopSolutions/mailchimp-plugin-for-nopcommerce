@@ -2,6 +2,7 @@
 using Nop.Services.Localization;
 using Nop.Services.Plugins;
 using Nop.Services.Tasks;
+using Task = System.Threading.Tasks.Task;
 
 namespace Nop.Plugin.Misc.MailChimp.Services
 {
@@ -36,17 +37,17 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// <summary>
         /// Execute task
         /// </summary>
-        public void Execute()
+        public async Task ExecuteAsync()
         {
             //ensure that plugin installed
-            var pluginDescriptor = _pluginService.GetPluginDescriptorBySystemName<IPlugin>(MailChimpDefaults.SystemName, LoadPluginsMode.InstalledOnly);
+            var pluginDescriptor = await _pluginService.GetPluginDescriptorBySystemNameAsync<IPlugin>(MailChimpDefaults.SystemName, LoadPluginsMode.InstalledOnly);
             if (pluginDescriptor == null)
                 return;
 
             //start the synchronization
-            var synchronizationStarted = _mailChimpManager.Synchronize().Result.HasValue;
+            var synchronizationStarted = (await _mailChimpManager.SynchronizeAsync()).HasValue;
             if (!synchronizationStarted)
-                throw new NopException(_localizationService.GetResource("Plugins.Misc.MailChimp.Synchronization.Error"));
+                throw new NopException(await _localizationService.GetResourceAsync("Plugins.Misc.MailChimp.Synchronization.Error"));
         }
 
         #endregion

@@ -1,4 +1,4 @@
-﻿using Autofac;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Nop.Core.Configuration;
 using Nop.Core.Infrastructure;
 using Nop.Core.Infrastructure.DependencyManagement;
@@ -14,16 +14,16 @@ namespace Nop.Plugin.Misc.MailChimp.Infrastructure
         /// <summary>
         /// Register services and interfaces
         /// </summary>
-        /// <param name="builder">Container builder</param>
+        /// <param name="services">Collection of service descriptors</param>
         /// <param name="typeFinder">Type finder</param>
-        /// <param name="config">Config</param>
-        public virtual void Register(ContainerBuilder builder, ITypeFinder typeFinder, NopConfig config)
+        /// <param name="appSettings">App settings</param>
+        public void Register(IServiceCollection services, ITypeFinder typeFinder, AppSettings appSettings)
         {
             //register MailChimp manager
-            builder.RegisterType<MailChimpManager>().AsSelf().InstancePerLifetimeScope();
+            services.AddScoped<MailChimpManager>();
 
             //register custom data services
-            builder.RegisterType<SynchronizationRecordService>().As<ISynchronizationRecordService>().InstancePerLifetimeScope();
+            services.AddScoped<ISynchronizationRecordService, SynchronizationRecordService>();
         }
 
         /// <summary>

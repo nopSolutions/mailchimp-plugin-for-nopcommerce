@@ -8,7 +8,7 @@ namespace Nop.Plugin.Misc.MailChimp.Models
     /// <summary>
     /// Represents MailChimp configuration model
     /// </summary>
-    public class ConfigurationModel
+    public record ConfigurationModel
     {
         #region Ctor
 
@@ -27,7 +27,6 @@ namespace Nop.Plugin.Misc.MailChimp.Models
 
         [NopResourceDisplayName("Plugins.Misc.MailChimp.Fields.ApiKey")]
         [DataType(DataType.Password)]
-        [NoTrim]
         public string ApiKey { get; set; }
 
         [NopResourceDisplayName("Plugins.Misc.MailChimp.Fields.AccountInfo")]

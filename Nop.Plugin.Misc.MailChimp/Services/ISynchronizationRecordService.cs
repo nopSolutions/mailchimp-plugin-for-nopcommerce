@@ -1,4 +1,5 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
+using System.Threading.Tasks;
 using Nop.Plugin.Misc.MailChimp.Domain;
 
 namespace Nop.Plugin.Misc.MailChimp.Services
@@ -19,7 +20,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// </summary>
         /// <param name="recordId">Synchronization record identifier</param>
         /// <returns>Synchronization record</returns>
-        MailChimpSynchronizationRecord GetRecordById(int recordId);
+        Task<MailChimpSynchronizationRecord> GetRecordByIdAsync(int recordId);
 
         /// <summary>
         /// Get synchronization records by entity type and operation type
@@ -37,35 +38,35 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// <param name="operationType">Operation type</param>
         /// <param name="email">Email (only for subscriptions)</param>
         /// <param name="productId">Product identifier (for product attributes, attribute values and attribute combinations)</param>
-        void CreateOrUpdateRecord(EntityType entityType, int entityId, OperationType operationType, string email = null, int productId = 0);
+        Task CreateOrUpdateRecordAsync(EntityType entityType, int entityId, OperationType operationType, string email = null, int productId = 0);
 
         /// <summary>
         /// Insert a synchronization record
         /// </summary>
         /// <param name="record">Synchronization record</param>
-        void InsertRecord(MailChimpSynchronizationRecord record);
+        Task InsertRecordAsync(MailChimpSynchronizationRecord record);
 
         /// <summary>
         /// Update a synchronization record
         /// </summary>
         /// <param name="record">Synchronization record</param>
-        void UpdateRecord(MailChimpSynchronizationRecord record);
+        Task UpdateRecordAsync(MailChimpSynchronizationRecord record);
 
         /// <summary>
         /// Delete a synchronization record
         /// </summary>
         /// <param name="record">Synchronization record</param>
-        void DeleteRecord(MailChimpSynchronizationRecord record);
+        Task DeleteRecordAsync(MailChimpSynchronizationRecord record);
 
         /// <summary>
         /// Delete synchronization records by entity type
         /// </summary>
         /// <param name="entityType">Entity type</param>
-        void DeleteRecordsByEntityType(EntityType entityType);
+        Task DeleteRecordsByEntityTypeAsync(EntityType entityType);
 
         /// <summary>
         /// Delete all synchronization records
         /// </summary>
-        void ClearRecords();
+        Task ClearRecordsAsync();
     }
 }
