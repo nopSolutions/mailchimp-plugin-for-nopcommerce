@@ -152,7 +152,8 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// <returns>A task that represents the asynchronous operation</returns>
         public async Task HandleEventAsync(EntityInsertedEvent<Customer> eventMessage)
         {
-            if (eventMessage.Entity == null || await _customerService.IsGuestAsync(eventMessage.Entity))
+            if (eventMessage.Entity == null || await _customerService.IsGuestAsync(eventMessage.Entity) ||
+                string.IsNullOrEmpty(eventMessage.Entity?.Email))
                 return;
 
             AddRecord(EntityType.Customer, eventMessage.Entity.Id, OperationType.Create);
@@ -165,7 +166,8 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         /// <returns>A task that represents the asynchronous operation</returns>
         public async Task HandleEventAsync(EntityUpdatedEvent<Customer> eventMessage)
         {
-            if (eventMessage.Entity == null || await _customerService.IsGuestAsync(eventMessage.Entity))
+            if (eventMessage.Entity == null || await _customerService.IsGuestAsync(eventMessage.Entity) ||
+                string.IsNullOrEmpty(eventMessage.Entity?.Email))
                 return;
 
             var operationType = eventMessage.Entity.Deleted ? OperationType.Delete : OperationType.Update;

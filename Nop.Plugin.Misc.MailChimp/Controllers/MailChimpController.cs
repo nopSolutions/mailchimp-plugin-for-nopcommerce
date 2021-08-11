@@ -232,7 +232,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
         {
             //try to get number of operations and already handled batches
             var operationNumber = await _staticCacheManager.GetAsync(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.OperationNumberCacheKey), () => (int?)null);
-            var batchesInfo = _staticCacheManager.Get(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.SynchronizationBatchesCacheKey), () => new Dictionary<string, int>());
+            var batchesInfo = await _staticCacheManager.GetAsync(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.SynchronizationBatchesCacheKey), () => new Dictionary<string, int>());
 
             //check whether the synchronization is finished
             if (!operationNumber.HasValue || operationNumber.Value == batchesInfo.Values.Sum())

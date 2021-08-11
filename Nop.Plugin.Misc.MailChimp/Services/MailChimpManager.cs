@@ -715,7 +715,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
 
             foreach (var store in stores)
             {
-                var storeObject = MapStoreAsync(store);
+                var storeObject = await MapStoreAsync(store);
                 if (storeObject == null)
                     continue;
 
@@ -817,7 +817,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 //create customers for all stores
                 foreach (var customer in customers)
                 {
-                    var customerObject = MapCustomerAsync(customer, store.Id);
+                    var customerObject = await MapCustomerAsync(customer, store.Id);
                     if (customerObject == null)
                         continue;
 
@@ -940,7 +940,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
 
                 foreach (var product in storeProducts)
                 {
-                    var productObject = MapProductAsync(product);
+                    var productObject = await MapProductAsync(product);
                     if (productObject == null)
                         continue;
 
@@ -976,7 +976,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
 
                 foreach (var product in storeProducts)
                 {
-                    var productObject = MapProductAsync(product);
+                    var productObject = await MapProductAsync(product);
                     if (productObject == null)
                         continue;
 
@@ -989,7 +989,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                     operations.Add(CreateOperation(productObject, OperationType.Update, requestPath, operationId));
 
                     //add operation to update default product variant
-                    var productVariant = CreateDefaultProductVariantByProductAsync(product);
+                    var productVariant = await CreateDefaultProductVariantByProductAsync(product);
                     if (productVariant == null)
                         continue;
 
@@ -1239,7 +1239,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
 
                 foreach (var order in storeOrders)
                 {
-                    var orderObject = MapOrderAsync(order);
+                    var orderObject = await MapOrderAsync(order);
                     if (orderObject == null)
                         continue;
 
@@ -1276,7 +1276,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
 
                 foreach (var order in storeOrders)
                 {
-                    var orderObject = MapOrderAsync(order);
+                    var orderObject = await MapOrderAsync(order);
                     if (orderObject == null)
                         continue;
 
