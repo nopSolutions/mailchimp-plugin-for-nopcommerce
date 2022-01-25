@@ -18,6 +18,11 @@ namespace Nop.Plugin.Misc.MailChimp
         public bool PassEcommerceData { get; set; }
 
         /// <summary>
+        /// Gets or sets value indicating whether to pass only customers who are subscribers to MailChimp
+        /// </summary>
+        public bool PassOnlySubscribed { get; set; }
+
+        /// <summary>
         /// Gets or sets identifier of user list
         /// </summary>
         public string ListId { get; set; }

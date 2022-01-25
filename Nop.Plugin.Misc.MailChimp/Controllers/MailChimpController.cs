@@ -81,6 +81,7 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
             {
                 ApiKey = mailChimpSettings.ApiKey,
                 PassEcommerceData = mailChimpSettings.PassEcommerceData,
+                PassOnlySubscribed = mailChimpSettings.PassOnlySubscribed,
                 ListId = mailChimpSettings.ListId,
                 ListId_OverrideForStore = storeId > 0 && await _settingService.SettingExistsAsync(mailChimpSettings, settings => settings.ListId, storeId),
                 ActiveStoreScopeConfiguration = storeId
@@ -161,9 +162,11 @@ namespace Nop.Plugin.Misc.MailChimp.Controllers
             //save settings
             mailChimpSettings.ApiKey = model.ApiKey.Trim();
             mailChimpSettings.PassEcommerceData = model.PassEcommerceData;
+            mailChimpSettings.PassOnlySubscribed = model.PassOnlySubscribed;
             mailChimpSettings.ListId = model.ListId;
             await _settingService.SaveSettingAsync(mailChimpSettings, x => x.ApiKey, clearCache: false);
             await _settingService.SaveSettingAsync(mailChimpSettings, x => x.PassEcommerceData, clearCache: false);
+            await _settingService.SaveSettingAsync(mailChimpSettings, x => x.PassOnlySubscribed, clearCache: false);
             await _settingService.SaveSettingOverridablePerStoreAsync(mailChimpSettings, x => x.ListId, model.ListId_OverrideForStore, storeId, false);
             await _settingService.ClearCacheAsync();
 

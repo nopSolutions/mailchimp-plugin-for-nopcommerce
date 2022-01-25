@@ -95,6 +95,8 @@ namespace Nop.Plugin.Misc.MailChimp
                 ["Plugins.Misc.MailChimp.Fields.List.NotExist"] = "There are no lists",
                 ["Plugins.Misc.MailChimp.Fields.PassEcommerceData"] = "Pass E-Commerce data",
                 ["Plugins.Misc.MailChimp.Fields.PassEcommerceData.Hint"] = "Determine whether to pass E-Commerce data (customers] =products] =orders] =etc).",
+                ["Plugins.Misc.MailChimp.Fields.PassOnlySubscribed"] = "Pass only subscribed customers",
+                ["Plugins.Misc.MailChimp.Fields.PassOnlySubscribed.Hint"] = "Determine whether to pass only customers who are subscribers.",
                 ["Plugins.Misc.MailChimp.Fields.SynchronizationPeriod"] = "Synchronization period",
                 ["Plugins.Misc.MailChimp.Fields.SynchronizationPeriod.Hint"] = "Specify the synchronization period in hours.",
                 ["Plugins.Misc.MailChimp.ManualSynchronization"] = "Synchronize",

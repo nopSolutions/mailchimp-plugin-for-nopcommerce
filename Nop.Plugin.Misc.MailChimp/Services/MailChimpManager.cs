@@ -273,16 +273,19 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 });
             }
 
-            var customers = await (await _customerService.GetAllCustomersAsync()).WhereAwait(async customer => !await _customerService.IsGuestAsync(customer)).ToListAsync();
-            //add registered customers
-            foreach (var customer in customers)
+            if (!_mailChimpSettings.PassOnlySubscribed)
             {
-                await _synchronizationRecordService.InsertRecordAsync(new MailChimpSynchronizationRecord
+                var customers = await (await _customerService.GetAllCustomersAsync()).WhereAwait(async customer => !await _customerService.IsGuestAsync(customer)).ToListAsync();
+                //add registered customers
+                foreach (var customer in customers)
                 {
-                    EntityType = EntityType.Customer,
-                    EntityId = customer.Id,
-                    OperationType = OperationType.Create
-                });
+                    await _synchronizationRecordService.InsertRecordAsync(new MailChimpSynchronizationRecord
+                    {
+                        EntityType = EntityType.Customer,
+                        EntityId = customer.Id,
+                        OperationType = OperationType.Create
+                    });
+                }
             }
 
             //add products

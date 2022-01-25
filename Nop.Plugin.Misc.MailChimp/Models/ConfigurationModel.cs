@@ -35,6 +35,9 @@ namespace Nop.Plugin.Misc.MailChimp.Models
         [NopResourceDisplayName("Plugins.Misc.MailChimp.Fields.PassEcommerceData")]
         public bool PassEcommerceData { get; set; }
 
+        [NopResourceDisplayName("Plugins.Misc.MailChimp.Fields.PassOnlySubscribed")]
+        public bool PassOnlySubscribed { get; set; }
+
         [NopResourceDisplayName("Plugins.Misc.MailChimp.Fields.List")]
         public string ListId { get; set; }
         public bool ListId_OverrideForStore { get; set; }
