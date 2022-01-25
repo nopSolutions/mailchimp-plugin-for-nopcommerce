@@ -1,28 +1,13 @@
 ﻿using FluentMigrator;
+using Nop.Data.Extensions;
 using Nop.Data.Migrations;
 using Nop.Plugin.Misc.MailChimp.Domain;
 
 namespace Nop.Plugin.Misc.MailChimp.Data
 {
-    [SkipMigrationOnUpdate]
-    [NopMigration("2020/06/04 12:00:00", "Misc.MailChimp base schema")]
+    [NopMigration("2020/06/04 12:00:00", "Misc.MailChimp base schema", MigrationProcessType.Installation)]
     public class SchemaMigration : AutoReversingMigration
     {
-        #region Fields
-
-        protected IMigrationManager _migrationManager;
-
-        #endregion
-
-        #region Ctor
-
-        public SchemaMigration(IMigrationManager migrationManager)
-        {
-            _migrationManager = migrationManager;
-        }
-
-        #endregion
-
         #region Methods
 
         /// <summary>
@@ -30,7 +15,7 @@ namespace Nop.Plugin.Misc.MailChimp.Data
         /// </summary>
         public override void Up()
         {
-            _migrationManager.BuildTable<MailChimpSynchronizationRecord>(Create);
+            Create.TableFor<MailChimpSynchronizationRecord>();
         }
 
         #endregion

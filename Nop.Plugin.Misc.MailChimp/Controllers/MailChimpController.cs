@@ -1,25 +1,25 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Nop.Core;
 using Nop.Core.Caching;
-using Nop.Core.Domain.Tasks;
+using Nop.Core.Domain.ScheduleTasks;
 using Nop.Plugin.Misc.MailChimp.Domain;
 using Nop.Plugin.Misc.MailChimp.Models;
 using Nop.Plugin.Misc.MailChimp.Services;
 using Nop.Services.Configuration;
 using Nop.Services.Localization;
 using Nop.Services.Messages;
+using Nop.Services.ScheduleTasks;
 using Nop.Services.Stores;
-using Nop.Services.Tasks;
 using Nop.Web.Framework;
 using Nop.Web.Framework.Controllers;
 using Nop.Web.Framework.Mvc;
 using Nop.Web.Framework.Mvc.Filters;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace Nop.Plugin.Misc.MailChimp.Controllers
 {

@@ -1,17 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Net;
-using System.Text;
-using System.Threading.Tasks;
-using MailChimp.Net.Core;
+﻿using MailChimp.Net.Core;
 using MailChimp.Net.Interfaces;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Mvc.Routing;
+using Microsoft.Net.Http.Headers;
 using Newtonsoft.Json;
 using Nop.Core;
 using Nop.Core.Domain.Catalog;
@@ -21,7 +15,6 @@ using Nop.Core.Domain.Directory;
 using Nop.Core.Domain.Messages;
 using Nop.Core.Domain.Orders;
 using Nop.Core.Domain.Stores;
-using Nop.Core.Html;
 using Nop.Plugin.Misc.MailChimp.Domain;
 using Nop.Services.Catalog;
 using Nop.Services.Common;
@@ -29,6 +22,7 @@ using Nop.Services.Configuration;
 using Nop.Services.Customers;
 using Nop.Services.Directory;
 using Nop.Services.Helpers;
+using Nop.Services.Html;
 using Nop.Services.Localization;
 using Nop.Services.Logging;
 using Nop.Services.Media;
@@ -37,6 +31,14 @@ using Nop.Services.Orders;
 using Nop.Services.Seo;
 using Nop.Services.Stores;
 using SharpCompress.Readers;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Threading.Tasks;
 using mailchimp = MailChimp.Net.Models;
 
 namespace Nop.Plugin.Misc.MailChimp.Services
@@ -57,6 +59,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
         private readonly ICustomerService _customerService;
         private readonly IDateTimeHelper _dateTimeHelper;
         private readonly IGenericAttributeService _genericAttributeService;
+        private readonly IHtmlFormatter _htmlFormatter;
         private readonly ILanguageService _languageService;
         private readonly ILogger _logger;
         private readonly IMailChimpManager _mailChimpManager;
@@ -92,6 +95,8 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             ICurrencyService currencyService,
             ICustomerService customerService,
             IDateTimeHelper dateTimeHelper,
+            IGenericAttributeService genericAttributeService,
+            IHtmlFormatter htmlFormatter,
             ILanguageService languageService,
             ILogger logger,
             IManufacturerService manufacturerService,
@@ -109,11 +114,10 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             IStoreService storeService,
             ISynchronizationRecordService synchronizationRecordService,
             IUrlHelperFactory urlHelperFactory,
+            IUrlRecordService urlRecordService,
             IWebHelper webHelper,
             IWorkContext workContext,
-            IGenericAttributeService genericAttributeService,
-            MailChimpSettings mailChimpSettings,
-            IUrlRecordService urlRecordService)
+            MailChimpSettings mailChimpSettings)
         {
             _currencySettings = currencySettings;
             _actionContextAccessor = actionContextAccessor;
@@ -143,6 +147,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             _webHelper = webHelper;
             _workContext = workContext;
             _genericAttributeService = genericAttributeService;
+            _htmlFormatter = htmlFormatter;
             _mailChimpSettings = mailChimpSettings;
             _urlRecordService = urlRecordService;
 
@@ -393,8 +398,16 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 if (!string.IsNullOrEmpty(batch.ResponseBodyUrl))
                 {
                     //get additional result info from MailChimp servers
-                    var webResponse = await WebRequest.Create(batch.ResponseBodyUrl).GetResponseAsync();
-                    using var stream = webResponse.GetResponseStream();
+                    using var httpClient = new HttpClient();
+
+                    //configure client
+                    httpClient.Timeout = TimeSpan.FromSeconds(20);
+                    httpClient.DefaultRequestHeaders.Add(HeaderNames.UserAgent, $"nopCommerce-{NopVersion.CURRENT_VERSION}");
+                    var response = await httpClient.GetAsync(batch.ResponseBodyUrl);
+
+                    response.EnsureSuccessStatusCode();
+                    using var stream = await response.Content.ReadAsStreamAsync();
+
                     //operation results represent a gzipped tar archive of JSON files, so extract it
                     using var archiveReader = ReaderFactory.Open(stream);
                     while (archiveReader.MoveToNextEntry())
@@ -1040,7 +1053,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 Title = product.Name,
                 Url = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
                     .RouteUrl(nameof(Product), new { SeName = await _urlRecordService.GetSeNameAsync(product) }, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme),
-                Description = HtmlHelper.StripTags(!string.IsNullOrEmpty(product.FullDescription) ? product.FullDescription :
+                Description = _htmlFormatter.StripTags(!string.IsNullOrEmpty(product.FullDescription) ? product.FullDescription :
                     !string.IsNullOrEmpty(product.ShortDescription) ? product.ShortDescription : product.Name),
                 Type = (await _categoryService.GetCategoryByIdAsync((await _categoryService.GetProductCategoriesByProductIdAsync(product.Id)).FirstOrDefault()?.CategoryId ?? 0))?.Name,
                 Vendor = (await _manufacturerService.GetManufacturerByIdAsync((await _manufacturerService.GetProductManufacturersByProductIdAsync(product.Id))?.FirstOrDefault()?.ManufacturerId ?? 0))?.Name,
@@ -1812,14 +1825,15 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                         //if subscription doesn't exist, create the new one
                         if (subscription == null)
                         {
-                            await _newsLetterSubscriptionService.InsertNewsLetterSubscriptionAsync(new NewsLetterSubscription
+                            subscription = new NewsLetterSubscription
                             {
                                 NewsLetterSubscriptionGuid = Guid.NewGuid(),
                                 Email = email,
                                 StoreId = storeId,
                                 Active = true,
                                 CreatedOnUtc = DateTime.UtcNow
-                            }, false);
+                            };
+                            await _newsLetterSubscriptionService.InsertNewsLetterSubscriptionAsync(subscription, false);
                         }
                         else
                         {

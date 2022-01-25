@@ -286,7 +286,7 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 return;
 
             //get associated product attribute mapping objects
-            var productAttributeMappings = (await _productService.GetProductsByProductAtributeIdAsync(eventMessage.Entity.Id))
+            var productAttributeMappings = (await _productService.GetProductsByProductAttributeIdAsync(eventMessage.Entity.Id))
                 .SelectManyAwait(async product => (await _productAttributeService.GetProductAttributeMappingsByProductIdAsync(product.Id))
                 .Where(attribute => attribute.ProductId > 0 && attribute.ProductAttributeId == eventMessage.Entity.Id));
             await foreach (var productAttributeMapping in productAttributeMappings)

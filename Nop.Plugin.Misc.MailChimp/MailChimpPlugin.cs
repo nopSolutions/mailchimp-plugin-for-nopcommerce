@@ -1,13 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using Nop.Core;
-using Nop.Core.Domain.Tasks;
+﻿using Nop.Core;
+using Nop.Core.Domain.ScheduleTasks;
 using Nop.Plugin.Misc.MailChimp.Services;
 using Nop.Services.Common;
 using Nop.Services.Configuration;
 using Nop.Services.Localization;
 using Nop.Services.Plugins;
-using Nop.Services.Tasks;
+using Nop.Services.ScheduleTasks;
+using System;
+using System.Collections.Generic;
 using Task = System.Threading.Tasks.Task;
 
 namespace Nop.Plugin.Misc.MailChimp
@@ -81,7 +81,7 @@ namespace Nop.Plugin.Misc.MailChimp
             }
 
             //locales
-            await _localizationService.AddLocaleResourceAsync(new Dictionary<string, string>
+            await _localizationService.AddOrUpdateLocaleResourceAsync(new Dictionary<string, string>
             {
                 ["Plugins.Misc.MailChimp.Fields.AccountInfo"] = "Account information",
                 ["Plugins.Misc.MailChimp.Fields.AccountInfo.Hint"] = "Display MailChimp account information.",

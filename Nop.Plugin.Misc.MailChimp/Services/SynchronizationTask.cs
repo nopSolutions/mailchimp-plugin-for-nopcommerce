@@ -1,7 +1,7 @@
 ﻿using Nop.Core;
 using Nop.Services.Localization;
 using Nop.Services.Plugins;
-using Nop.Services.Tasks;
+using Nop.Services.ScheduleTasks;
 using Task = System.Threading.Tasks.Task;
 
 namespace Nop.Plugin.Misc.MailChimp.Services
