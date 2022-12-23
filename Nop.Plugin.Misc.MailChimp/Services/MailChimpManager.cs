@@ -1,4 +1,5 @@
-﻿using MailChimp.Net.Core;
+﻿using DocumentFormat.OpenXml.Bibliography;
+using MailChimp.Net.Core;
 using MailChimp.Net.Interfaces;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -611,13 +612,13 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             if (customer != null && !await _customerService.IsGuestAsync(customer))
             {
                 //try to add language
-                var languageId = await _genericAttributeService.GetAttributeAsync<int>(customer, NopCustomerDefaults.LanguageIdAttribute);
+                var languageId = customer.LanguageId ?? 0;
                 if (languageId > 0)
                     member.Language = (await _languageService.GetLanguageByIdAsync(languageId))?.UniqueSeoCode;
 
                 //try to add names
-                var firstName = await _genericAttributeService.GetAttributeAsync<string>(customer, NopCustomerDefaults.FirstNameAttribute);
-                var lastName = await _genericAttributeService.GetAttributeAsync<string>(customer, NopCustomerDefaults.LastNameAttribute);
+                var firstName = customer.FirstName;
+                var lastName = customer.LastName;
                 if (!string.IsNullOrEmpty(firstName) || !string.IsNullOrEmpty(lastName))
                 {
                     member.MergeFields = new Dictionary<string, object>
@@ -890,8 +891,8 @@ namespace Nop.Plugin.Misc.MailChimp.Services
             var customerOrders = (await _orderService.SearchOrdersAsync(storeId: storeId, customerId: customer.Id)).ToList();
 
             //get customer country and region
-            var customerCountry = await _countryService.GetCountryByIdAsync(await _genericAttributeService.GetAttributeAsync<int>(customer, NopCustomerDefaults.CountryIdAttribute));
-            var customerProvince = await _stateProvinceService.GetStateProvinceByIdAsync(await _genericAttributeService.GetAttributeAsync<int>(customer, NopCustomerDefaults.StateProvinceIdAttribute));
+            var country = await _countryService.GetCountryByIdAsync(customer.CountryId);
+            var stateProvince = await _stateProvinceService.GetStateProvinceByIdAsync(customer.StateProvinceId);
 
             return new mailchimp.Customer
             {
@@ -900,19 +901,19 @@ namespace Nop.Plugin.Misc.MailChimp.Services
                 OptInStatus = false,
                 OrdersCount = customerOrders.Count,
                 TotalSpent = customerOrders.Sum(order => order.OrderTotal),
-                FirstName = await _genericAttributeService.GetAttributeAsync<string>(customer, NopCustomerDefaults.FirstNameAttribute),
-                LastName = await _genericAttributeService.GetAttributeAsync<string>(customer, NopCustomerDefaults.LastNameAttribute),
-                Company = await _genericAttributeService.GetAttributeAsync<string>(customer, NopCustomerDefaults.CompanyAttribute),
+                FirstName = customer.FirstName,
+                LastName = customer.LastName,
+                Company = customer.Company,
                 Address = new mailchimp.Address
                 {
-                    Address1 = await _genericAttributeService.GetAttributeAsync<string>(customer, NopCustomerDefaults.StreetAddressAttribute),
-                    Address2 = await _genericAttributeService.GetAttributeAsync<string>(customer, NopCustomerDefaults.StreetAddress2Attribute),
-                    City = await _genericAttributeService.GetAttributeAsync<string>(customer, NopCustomerDefaults.CityAttribute),
-                    Province = customerProvince?.Name,
-                    ProvinceCode = customerProvince?.Abbreviation,
-                    Country = customerCountry?.Name,
-                    CountryCode = customerCountry?.TwoLetterIsoCode,
-                    PostalCode = await _genericAttributeService.GetAttributeAsync<string>(customer, NopCustomerDefaults.ZipPostalCodeAttribute)
+                    Address1 = customer.StreetAddress,
+                    Address2 = customer.StreetAddress2,
+                    City = customer.City,
+                    Province = stateProvince?.Name,
+                    ProvinceCode = stateProvince?.Abbreviation,
+                    Country = country?.Name,
+                    CountryCode = country?.TwoLetterIsoCode,
+                    PostalCode = customer.ZipPostalCode
                 }
             };
         }
