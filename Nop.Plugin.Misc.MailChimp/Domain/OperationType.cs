@@ -1,33 +1,32 @@
-﻿namespace Nop.Plugin.Misc.MailChimp.Domain
+﻿namespace Nop.Plugin.Misc.MailChimp.Domain;
+
+/// <summary>
+/// Represents an operation type enumeration
+/// </summary>
+public enum OperationType
 {
     /// <summary>
-    /// Represents an operation type enumeration
+    /// Read
     /// </summary>
-    public enum OperationType
-    {
-        /// <summary>
-        /// Read
-        /// </summary>
-        Read,
+    Read,
 
-        /// <summary>
-        /// Create
-        /// </summary>
-        Create,
+    /// <summary>
+    /// Create
+    /// </summary>
+    Create,
 
-        /// <summary>
-        /// Update
-        /// </summary>
-        Update,
+    /// <summary>
+    /// Update
+    /// </summary>
+    Update,
 
-        /// <summary>
-        /// Delete
-        /// </summary>
-        Delete,
+    /// <summary>
+    /// Delete
+    /// </summary>
+    Delete,
 
-        /// <summary>
-        /// Create or update
-        /// </summary>
-        CreateOrUpdate
-    }
+    /// <summary>
+    /// Create or update
+    /// </summary>
+    CreateOrUpdate
 }

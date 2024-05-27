@@ -1,12 +1,12 @@
-﻿@model Nop.Plugin.Misc.MailChimp.Models.ConfigurationModel
+﻿@model ConfigurationModel
 @{
     Layout = "_ConfigurePlugin";
 }
 
-@await Component.InvokeAsync("StoreScopeConfiguration")
+@await Component.InvokeAsync(typeof(StoreScopeConfigurationViewComponent))
 
 <script>
-    $(document).ready(function () {
+    $(function () {
         $('#@Html.IdFor(model => model.AutoSynchronization)').click(toggleAutoSync);
         toggleAutoSync();
     });
@@ -62,11 +62,11 @@
                 }
                 <div class="form-group row">
                     <div class="col-md-3">
-                        <nop-override-store-checkbox asp-for="ListId_OverrideForStore" asp-input="ListId" asp-store-scope="Model.ActiveStoreScopeConfiguration" />
+                        <nop-override-store-checkbox asp-for="ListId_OverrideForStore" asp-input="ListId" asp-store-scope="@Model.ActiveStoreScopeConfiguration" />
                         <nop-label asp-for="ListId" />
                     </div>
                     <div class="col-md-9">
-                        <nop-select asp-for="ListId" asp-items="Model.AvailableLists" />
+                        <nop-select asp-for="ListId" asp-items="@Model.AvailableLists" />
                         <span asp-validation-for="ListId"></span>
                     </div>
                 </div>
@@ -111,7 +111,7 @@
                     </div>
                 </nop-nested-setting>
                 <div class="form-group row">
-                    <div class="col-md-9 col-md-offset-3">
+                    <div class="col-md-9 offset-md-3">
                         <input type="submit" name="save" class="btn btn-primary" value="@T("Admin.Common.Save")" />
                     </div>
                 </div>
@@ -142,7 +142,7 @@
 {
     <text>
         <script>
-            $(document).ready(function () {
+            $(function () {
                 $('#progressBar').kendoProgressBar({ value: false, type: 'value' }).data('kendoProgressBar');
                 refresh();
             });

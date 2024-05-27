@@ -1,38 +1,37 @@
-﻿namespace Nop.Plugin.Misc.MailChimp.Domain
+﻿namespace Nop.Plugin.Misc.MailChimp.Domain;
+
+/// <summary>
+/// Represents an entity type enumeration
+/// </summary>
+public enum EntityType
 {
     /// <summary>
-    /// Represents an entity type enumeration
+    /// Store
     /// </summary>
-    public enum EntityType
-    {
-        /// <summary>
-        /// Store
-        /// </summary>
-        Store,
+    Store,
 
-        /// <summary>
-        /// Customer
-        /// </summary>
-        Customer,
+    /// <summary>
+    /// Customer
+    /// </summary>
+    Customer,
 
-        /// <summary>
-        /// Email subscription
-        /// </summary>
-        Subscription,
+    /// <summary>
+    /// Email subscription
+    /// </summary>
+    Subscription,
 
-        /// <summary>
-        /// Order
-        /// </summary>
-        Order,
+    /// <summary>
+    /// Order
+    /// </summary>
+    Order,
 
-        /// <summary>
-        /// Product
-        /// </summary>
-        Product,
+    /// <summary>
+    /// Product
+    /// </summary>
+    Product,
 
-        /// <summary>
-        /// Product attribute combination 
-        /// </summary>
-        AttributeCombination
-    }
+    /// <summary>
+    /// Product attribute combination 
+    /// </summary>
+    AttributeCombination
 }
