@@ -516,6 +516,9 @@ public class MailChimpManager
                 if (member == null)
                     continue;
 
+                if (string.IsNullOrEmpty(subscription.Email))
+                    continue;
+
                 //create hash by email
                 var hash = _mailChimpManager.Members.Hash(subscription.Email);
 
@@ -558,6 +561,9 @@ public class MailChimpManager
                 //if subscription still exist, don't delete it from MailChimp
                 var subscription = await _newsLetterSubscriptionService.GetNewsLetterSubscriptionByEmailAndStoreIdAsync(record.Email, store.Id);
                 if (subscription != null)
+                    continue;
+
+                if (string.IsNullOrEmpty(record.Email))
                     continue;
 
                 //create hash by email
