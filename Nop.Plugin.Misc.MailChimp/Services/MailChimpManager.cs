@@ -1124,8 +1124,8 @@ public class MailChimpManager
         {
             Id = combination.Id.ToString(),
             Title = product.Name,
-            Url = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext).RouteUrl(nameof(Product), 
-            new { SeName = await _urlRecordService.GetSeNameAsync(product) }, 
+            Url = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext).RouteUrl(nameof(Product),
+            new { SeName = await _urlRecordService.GetSeNameAsync(product) },
                 _actionContextAccessor.ActionContext.HttpContext.Request.Scheme),
             Sku = !string.IsNullOrEmpty(combination.Sku) ? combination.Sku : product.Sku,
             Price = combination.OverriddenPrice ?? product.Price,
@@ -1168,7 +1168,7 @@ public class MailChimpManager
         foreach (var store in await _storeService.GetAllStoresAsync())
         {
             //filter combinations by the store
-            var storeCombinations = await combinations.WhereAwait(async combination => 
+            var storeCombinations = await combinations.WhereAwait(async combination =>
                 await _storeMappingService.AuthorizeAsync(await _productService.GetProductByIdAsync(combination.ProductId), store.Id)).ToListAsync();
 
             foreach (var combination in storeCombinations)
@@ -1352,7 +1352,7 @@ public class MailChimpManager
             TaxTotal = order.OrderTax,
             ShippingTotal = order.OrderShippingInclTax,
             ProcessedAtForeign = order.CreatedOnUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-            ShippingAddress = order.PickupInStore && order.PickupAddressId != null ? 
+            ShippingAddress = order.PickupInStore && order.PickupAddressId != null ?
                 await MapOrderAddressAsync(await _addressService.GetAddressByIdAsync(order.PickupAddressId ?? 0)) :
                 await MapOrderAddressAsync(await _addressService.GetAddressByIdAsync(order.ShippingAddressId ?? 0)),
             BillingAddress = await MapOrderAddressAsync(await _addressService.GetAddressByIdAsync(order.BillingAddressId)),
@@ -1554,22 +1554,22 @@ public class MailChimpManager
     /// </summary>
     /// <param name="manualSynchronization">Whether it's a manual synchronization</param>
     /// <returns>The asynchronous task whose result contains number of operation to synchronize</returns>
-    public async Task<int?> SynchronizeAsync(bool manualSynchronization = false)
+    public async Task<int> SynchronizeAsync(bool manualSynchronization = false)
     {
-        return await HandleRequestAsync<int?>(async () =>
+        return await HandleRequestAsync<int>(async () =>
         {
             //prepare records to manual synchronization
             if (manualSynchronization)
             {
                 var recordsPrepared = await PrepareRecordsToManualSynchronizationAsync();
                 if (!recordsPrepared)
-                    return null;
+                    return 0;
             }
 
             //prepare batch webhook
             var webhookPrepared = await PrepareBatchWebhookAsync();
             if (!webhookPrepared)
-                return null;
+                return 0;
 
             var operations = new List<Operation>();
 
@@ -1586,7 +1586,7 @@ public class MailChimpManager
             for (var i = 0; i < batchNumber; i++)
             {
                 var batchOperations = operations.Skip(i * _mailChimpSettings.BatchOperationNumber).Take(_mailChimpSettings.BatchOperationNumber);
-                var batch = await _mailChimpManager.Batches.AddAsync(new BatchRequest { Operations = batchOperations })
+                _ = await _mailChimpManager.Batches.AddAsync(new BatchRequest { Operations = batchOperations })
                     ?? throw new NopException("No response from the service");
             }
 

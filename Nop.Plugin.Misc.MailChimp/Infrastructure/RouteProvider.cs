@@ -17,11 +17,11 @@ public class RouteProvider : IRouteProvider
     {
         //webhook routes
         endpointRouteBuilder.MapControllerRoute(MailChimpDefaults.BatchWebhookRoute,
-            "Plugins/MailChimp/BatchWebhook", 
+            "Plugins/MailChimp/BatchWebhook",
             new { controller = "MailChimpWebhook", action = "BatchWebhook" });
 
         endpointRouteBuilder.MapControllerRoute(MailChimpDefaults.WebhookRoute,
-            "Plugins/MailChimp/Webhook", 
+            "Plugins/MailChimp/Webhook",
             new { controller = "MailChimpWebhook", action = "WebHook" });
     }
 

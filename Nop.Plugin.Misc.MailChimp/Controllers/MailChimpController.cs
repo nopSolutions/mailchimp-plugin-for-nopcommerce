@@ -83,7 +83,7 @@ public class MailChimpController : BasePluginController
         };
 
         //check whether synchronization is in progress
-        model.SynchronizationStarted = (await _staticCacheManager.GetAsync(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.OperationNumberCacheKey), () => (int?)null)).HasValue;
+        model.SynchronizationStarted = await _staticCacheManager.GetAsync(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.OperationNumberCacheKey), () => 0) != 0;
 
         //prepare account info
         if (!string.IsNullOrEmpty(mailChimpSettings.ApiKey))
@@ -206,11 +206,11 @@ public class MailChimpController : BasePluginController
 
         //start the synchronization
         var operationNumber = await _mailChimpManager.SynchronizeAsync(true);
-        if (operationNumber.HasValue)
+        if (operationNumber > 0)
         {
             //cache number of operations
             await _staticCacheManager.RemoveAsync(MailChimpDefaults.SynchronizationBatchesCacheKey);
-            await _staticCacheManager.SetAsync(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.OperationNumberCacheKey), operationNumber.Value);
+            await _staticCacheManager.SetAsync(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.OperationNumberCacheKey), operationNumber);
 
             _notificationService.SuccessNotification(await _localizationService.GetResourceAsync("Plugins.Misc.MailChimp.Synchronization.Started"));
         }
@@ -219,15 +219,15 @@ public class MailChimpController : BasePluginController
 
         return await Configure();
     }
-    
+
     public async Task<IActionResult> IsSynchronizationComplete()
     {
         //try to get number of operations and already handled batches
-        var operationNumber = await _staticCacheManager.GetAsync(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.OperationNumberCacheKey), () => (int?)null);
+        var operationNumber = await _staticCacheManager.GetAsync(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.OperationNumberCacheKey), () => 0);
         var batchesInfo = await _staticCacheManager.GetAsync(_staticCacheManager.PrepareKeyForDefaultCache(MailChimpDefaults.SynchronizationBatchesCacheKey), () => new Dictionary<string, int>());
 
         //check whether the synchronization is finished
-        if (!operationNumber.HasValue || operationNumber.Value == batchesInfo.Values.Sum())
+        if (operationNumber == 0 || operationNumber == batchesInfo.Values.Sum())
         {
             //clear cached values
             await _staticCacheManager.RemoveAsync(MailChimpDefaults.OperationNumberCacheKey);

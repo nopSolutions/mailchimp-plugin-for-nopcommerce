@@ -57,7 +57,7 @@ public class EventConsumer :
 
     #region Ctor
 
-    public EventConsumer(ICustomerService customerService, 
+    public EventConsumer(ICustomerService customerService,
         IProductAttributeParser productAttributeParser,
         IProductAttributeService productAttributeService,
         IProductService productService,
@@ -233,7 +233,7 @@ public class EventConsumer :
     {
         if (eventMessage.Entity != null)
             AddRecord(EntityType.Product, eventMessage.Entity.Id, OperationType.Create);
-        
+
         return Task.CompletedTask;
     }
 

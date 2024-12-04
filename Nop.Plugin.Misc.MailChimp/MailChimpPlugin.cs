@@ -38,7 +38,6 @@ public class MailChimpPlugin : BasePlugin, IMiscPlugin
         _settingService = settingService;
         _webHelper = webHelper;
         _mailChimpManager = mailChimpManager;
-        
     }
 
     #endregion
