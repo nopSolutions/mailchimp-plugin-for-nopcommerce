@@ -242,7 +242,11 @@ public class MailChimpManager
     private async Task CreateInitialDataAsync()
     {
         //add all subscriptions
-        foreach (var subscription in await _newsLetterSubscriptionService.GetAllNewsLetterSubscriptionsAsync())
+        var allSubscriptions = await _newsLetterSubscriptionService.GetAllNewsLetterSubscriptionsAsync();
+        if (!_mailChimpSettings.PassEcommerceData && !allSubscriptions.Any())
+            throw new NopException("No newsletter subscriptions found");
+
+        foreach (var subscription in allSubscriptions)
         {
             await _synchronizationRecordService.InsertRecordAsync(new MailChimpSynchronizationRecord
             {
@@ -269,7 +273,11 @@ public class MailChimpManager
 
         if (!_mailChimpSettings.PassOnlySubscribed)
         {
-            var customers = await (await _customerService.GetAllCustomersAsync()).WhereAwait(async customer => !await _customerService.IsGuestAsync(customer)).ToListAsync();
+            var customers = await (await _customerService.GetAllCustomersAsync())
+                .WhereAwait(async customer => !await _customerService.IsGuestAsync(customer))
+                .ToListAsync();
+
+
             //add registered customers
             foreach (var customer in customers)
             {
