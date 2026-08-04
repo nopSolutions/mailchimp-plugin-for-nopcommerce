@@ -14,6 +14,7 @@ public record ConfigurationModel
     public ConfigurationModel()
     {
         AvailableLists = new List<SelectListItem>();
+        NewsLetterSubscriptionTypes = new List<NewsLetterSubscriptionMapModel>();
     }
 
     #endregion
@@ -37,10 +38,9 @@ public record ConfigurationModel
     [NopResourceDisplayName("Plugins.Misc.MailChimp.Fields.PassOnlySubscribed")]
     public bool PassOnlySubscribed { get; set; }
 
-    [NopResourceDisplayName("Plugins.Misc.MailChimp.Fields.List")]
-    public string ListId { get; set; }
-    public bool ListId_OverrideForStore { get; set; }
     public IList<SelectListItem> AvailableLists { get; set; }
+
+    public IList<NewsLetterSubscriptionMapModel> NewsLetterSubscriptionTypes { get; set; }
 
     [NopResourceDisplayName("Plugins.Misc.MailChimp.Fields.AutoSynchronization")]
     public bool AutoSynchronization { get; set; }

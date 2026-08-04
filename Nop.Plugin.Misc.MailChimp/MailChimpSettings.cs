@@ -23,11 +23,6 @@ public class MailChimpSettings : ISettings
     public bool PassOnlySubscribed { get; set; }
 
     /// <summary>
-    /// Gets or sets identifier of user list
-    /// </summary>
-    public string ListId { get; set; }
-
-    /// <summary>
     /// Gets or sets mask of store identifier that uniquely identifying the store in MailChimp E-Commerce
     /// </summary>
     public string StoreIdMask { get; set; }
@@ -36,4 +31,9 @@ public class MailChimpSettings : ISettings
     /// Gets or sets number of an operation in the batch 
     /// </summary>
     public int BatchOperationNumber { get; set; }
+
+    /// <summary>
+    /// Gets or sets the collection of subscription type and MailChimp list mappings
+    /// </summary>
+    public string SubscriptionTypeMappings { get; set; }
 }

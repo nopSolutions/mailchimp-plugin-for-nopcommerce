@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Newtonsoft.Json;
 using Nop.Core;
 using Nop.Core.Caching;
 using Nop.Core.Domain.ScheduleTasks;
@@ -10,6 +11,7 @@ using Nop.Services.Configuration;
 using Nop.Services.Localization;
 using Nop.Services.Messages;
 using Nop.Services.ScheduleTasks;
+using Nop.Services.Security;
 using Nop.Services.Stores;
 using Nop.Web.Framework;
 using Nop.Web.Framework.Controllers;
@@ -26,13 +28,13 @@ public class MailChimpController : BasePluginController
     #region Fields
 
     private readonly ILocalizationService _localizationService;
+    private readonly INewsLetterSubscriptionTypeService _newsLetterSubscriptionTypeService;
     private readonly INotificationService _notificationService;
     private readonly IScheduleTaskService _scheduleTaskService;
     private readonly ISettingService _settingService;
     private readonly IStaticCacheManager _staticCacheManager;
     private readonly IStoreContext _storeContext;
     private readonly IStoreService _storeService;
-    private readonly ISynchronizationRecordService _synchronizationRecordService;
     private readonly MailChimpManager _mailChimpManager;
 
     #endregion
@@ -41,23 +43,23 @@ public class MailChimpController : BasePluginController
 
     public MailChimpController(
         ILocalizationService localizationService,
+        INewsLetterSubscriptionTypeService newsLetterSubscriptionTypeService,
         INotificationService notificationService,
         IScheduleTaskService scheduleTaskService,
         ISettingService settingService,
         IStaticCacheManager cacheManager,
         IStoreContext storeContext,
         IStoreService storeService,
-        ISynchronizationRecordService synchronizationRecordService,
         MailChimpManager mailChimpManager)
     {
         _localizationService = localizationService;
+        _newsLetterSubscriptionTypeService = newsLetterSubscriptionTypeService;
         _notificationService = notificationService;
         _scheduleTaskService = scheduleTaskService;
         _settingService = settingService;
         _staticCacheManager = cacheManager;
         _storeContext = storeContext;
         _storeService = storeService;
-        _synchronizationRecordService = synchronizationRecordService;
         _mailChimpManager = mailChimpManager;
     }
 
@@ -65,6 +67,7 @@ public class MailChimpController : BasePluginController
 
     #region Methods
 
+    [CheckPermission(StandardPermission.Configuration.MANAGE_PLUGINS)]
     public async Task<IActionResult> Configure()
     {
         //load settings for a chosen store scope
@@ -77,8 +80,6 @@ public class MailChimpController : BasePluginController
             ApiKey = mailChimpSettings.ApiKey,
             PassEcommerceData = mailChimpSettings.PassEcommerceData,
             PassOnlySubscribed = mailChimpSettings.PassOnlySubscribed,
-            ListId = mailChimpSettings.ListId,
-            ListId_OverrideForStore = storeId > 0 && await _settingService.SettingExistsAsync(mailChimpSettings, settings => settings.ListId, storeId),
             ActiveStoreScopeConfiguration = storeId
         };
 
@@ -89,11 +90,23 @@ public class MailChimpController : BasePluginController
         if (!string.IsNullOrEmpty(mailChimpSettings.ApiKey))
             model.AccountInfo = await _mailChimpManager.GetAccountInfoAsync();
 
+        //prepare subscription types from the database
+        var newsLetterSubscriptionTypes = await _newsLetterSubscriptionTypeService.GetAllNewsLetterSubscriptionTypesAsync(storeId);
+
+        //map from settings
+        var audienceTypeListMaps = await _mailChimpManager.GetAudienceTypeListMapsForStoreAsync(storeId);
+
+        model.NewsLetterSubscriptionTypes = await newsLetterSubscriptionTypes.Select(subscriptionType => new NewsLetterSubscriptionMapModel
+        {
+            TypeId = subscriptionType.Id,
+            Name = subscriptionType.Name,
+            ListId = audienceTypeListMaps.Where(x => x.TypeListId == subscriptionType.Id).Select(x => x.AudienceId).FirstOrDefault() ?? Guid.Empty.ToString()
+        }).ToListAsync();
+
         //prepare available lists
         if (!string.IsNullOrEmpty(mailChimpSettings.ApiKey))
             model.AvailableLists = await _mailChimpManager.GetAvailableListsAsync() ?? new List<SelectListItem>();
 
-        var defaultListId = mailChimpSettings.ListId;
         if (!model.AvailableLists.Any())
         {
             //add the special item for 'there are no lists' with empty guid value
@@ -102,15 +115,7 @@ public class MailChimpController : BasePluginController
                 Text = await _localizationService.GetResourceAsync("Plugins.Misc.MailChimp.Fields.List.NotExist"),
                 Value = Guid.Empty.ToString()
             });
-            defaultListId = Guid.Empty.ToString();
         }
-        else if (string.IsNullOrEmpty(mailChimpSettings.ListId) || mailChimpSettings.ListId.Equals(Guid.Empty.ToString()))
-            defaultListId = model.AvailableLists.FirstOrDefault()?.Value;
-
-        //set the default list
-        model.ListId = defaultListId;
-        mailChimpSettings.ListId = defaultListId;
-        await _settingService.SaveSettingOverridablePerStoreAsync(mailChimpSettings, settings => settings.ListId, model.ListId_OverrideForStore, storeId);
 
         //synchronization task
         var task = await _scheduleTaskService.GetTaskByTypeAsync(MailChimpDefaults.SynchronizationTask);
@@ -125,6 +130,7 @@ public class MailChimpController : BasePluginController
 
     [HttpPost, ActionName("Configure")]
     [FormValueRequired("save")]
+    [CheckPermission(StandardPermission.Configuration.MANAGE_PLUGINS)]
     public async Task<IActionResult> Configure(ConfigurationModel model)
     {
         if (!ModelState.IsValid)
@@ -134,34 +140,42 @@ public class MailChimpController : BasePluginController
         var storeId = await _storeContext.GetActiveStoreScopeConfigurationAsync();
         var mailChimpSettings = await _settingService.LoadSettingAsync<MailChimpSettings>(storeId);
 
-        //update stores if the list was changed
-        if (!string.IsNullOrEmpty(model.ListId) && !model.ListId.Equals(Guid.Empty.ToString()) && !model.ListId.Equals(mailChimpSettings.ListId))
-        {
-            (storeId > 0 ? new[] { storeId } : (await _storeService.GetAllStoresAsync()).Select(store => store.Id)).ToList()
-                .ForEach(id => _synchronizationRecordService.CreateOrUpdateRecordAsync(EntityType.Store, id, OperationType.Update));
-        }
-
-        //prepare webhook
-        if (!string.IsNullOrEmpty(mailChimpSettings.ApiKey))
-        {
-            var listId = !string.IsNullOrEmpty(model.ListId) && !model.ListId.Equals(Guid.Empty.ToString()) ? model.ListId : string.Empty;
-            var webhookPrepared = await _mailChimpManager.PrepareWebhookAsync(listId);
-
-            //display warning if webhook is not prepared
-            if (!webhookPrepared && !string.IsNullOrEmpty(listId))
-                _notificationService.WarningNotification(await _localizationService.GetResourceAsync("Plugins.Misc.MailChimp.Webhook.Warning"));
-        }
-
         //save settings
         mailChimpSettings.ApiKey = model.ApiKey.Trim();
         mailChimpSettings.PassEcommerceData = model.PassEcommerceData;
         mailChimpSettings.PassOnlySubscribed = model.PassOnlySubscribed;
-        mailChimpSettings.ListId = model.ListId;
+
+        //var audienceTypeListMaps = await GetAudienceTypeListMapsForStoreAsync(storeId);
+
+        var audienceTypeListMap = new List<AudienceTypeListMap>();
+        foreach (var subscriptionType in model.NewsLetterSubscriptionTypes)
+            audienceTypeListMap.Add(new AudienceTypeListMap
+            {
+                TypeListId = subscriptionType.TypeId,
+                AudienceId = subscriptionType.ListId
+            });
+
+        mailChimpSettings.SubscriptionTypeMappings = JsonConvert.SerializeObject(audienceTypeListMap);
+
         await _settingService.SaveSettingAsync(mailChimpSettings, x => x.ApiKey, clearCache: false);
         await _settingService.SaveSettingAsync(mailChimpSettings, x => x.PassEcommerceData, clearCache: false);
         await _settingService.SaveSettingAsync(mailChimpSettings, x => x.PassOnlySubscribed, clearCache: false);
-        await _settingService.SaveSettingOverridablePerStoreAsync(mailChimpSettings, x => x.ListId, model.ListId_OverrideForStore, storeId, false);
+        await _settingService.SaveSettingAsync(mailChimpSettings, settings => settings.SubscriptionTypeMappings, clearCache: false);
         await _settingService.ClearCacheAsync();
+
+        //prepare webhook
+        if (!string.IsNullOrEmpty(mailChimpSettings.ApiKey))
+        {
+            foreach (var mapping in audienceTypeListMap)
+            {
+                var listId = mapping.AudienceId;
+                var webhookPrepared = await _mailChimpManager.PrepareWebhookAsync(listId);
+
+                //display warning if webhook is not prepared
+                if (!webhookPrepared && !string.IsNullOrEmpty(listId))
+                    _notificationService.WarningNotification(await _localizationService.GetResourceAsync("Plugins.Misc.MailChimp.Webhook.Warning"));
+            }
+        }
 
         //create or update synchronization task
         var task = await _scheduleTaskService.GetTaskByTypeAsync(MailChimpDefaults.SynchronizationTask);
@@ -194,14 +208,20 @@ public class MailChimpController : BasePluginController
 
     [HttpPost, ActionName("Configure")]
     [FormValueRequired("synchronization")]
+    [CheckPermission(StandardPermission.Configuration.MANAGE_PLUGINS)]
     public async Task<IActionResult> Synchronization()
     {
         //ensure that user list for the synchronization is selected
-        var mailChimpSettings = await _settingService.LoadSettingAsync<MailChimpSettings>();
-        if (string.IsNullOrEmpty(mailChimpSettings.ListId) || mailChimpSettings.ListId.Equals(Guid.Empty.ToString()))
+        var storeId = await _storeContext.GetActiveStoreScopeConfigurationAsync();
+        var audienceTypeListMaps = await _mailChimpManager.GetAudienceTypeListMapsForStoreAsync(storeId);
+
+        foreach (var mapping in audienceTypeListMaps)
         {
-            _notificationService.ErrorNotification(await _localizationService.GetResourceAsync("Plugins.Misc.MailChimp.Synchronization.Error"));
-            return await Configure();
+            if (string.IsNullOrEmpty(mapping.AudienceId))
+            {
+                _notificationService.ErrorNotification(await _localizationService.GetResourceAsync("Plugins.Misc.MailChimp.Synchronization.Error"));
+                return await Configure();
+            }
         }
 
         //start the synchronization

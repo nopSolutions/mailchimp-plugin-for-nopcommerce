@@ -327,7 +327,7 @@ public class MailChimpManager
 
             //generate webhook URL
             var webhookUrl = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
-                .RouteUrl(MailChimpDefaults.BatchWebhookRoute, null, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme);
+                .RouteUrl(MailChimpDefaults.Route.BatchWebhookRoute, null, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme);
 
             //create the new one if not exists
             var batchWebhook = allBatchWebhooks.FirstOrDefault(webhook => !string.IsNullOrEmpty(webhook.Url) && webhook.Url.Equals(webhookUrl, StringComparison.InvariantCultureIgnoreCase));
@@ -505,37 +505,39 @@ public class MailChimpManager
         //get created and updated subscriptions
         var records = _synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Subscription, OperationType.Create).ToList();
         records.AddRange(_synchronizationRecordService.GetRecordsByEntityTypeAndOperationType(EntityType.Subscription, OperationType.Update));
-        var subscriptions = await records.Distinct().SelectAwait(async record => await _newsLetterSubscriptionService.GetNewsLetterSubscriptionByIdAsync(record.EntityId)).ToListAsync();
 
+        var subscriptions = await records.Distinct().SelectAwait(async record => await _newsLetterSubscriptionService.GetNewsLetterSubscriptionByIdAsync(record.EntityId)).ToListAsync();
         foreach (var store in await _storeService.GetAllStoresAsync())
         {
-            //try to get list ID for the store
-            var listId = await _settingService
-                .GetSettingByKeyAsync<string>($"{nameof(MailChimpSettings)}.{nameof(MailChimpSettings.ListId)}", storeId: store.Id, loadSharedValueIfNotFound: true);
-            if (string.IsNullOrEmpty(listId))
-                continue;
-
-            //filter subscriptions by store
-            var storeSubscriptions = subscriptions.Where(subscription => subscription?.StoreId == store.Id);
-
-            foreach (var subscription in storeSubscriptions)
+            //try to get list IDs
+            var audienceTypeListMaps = await GetAudienceTypeListMapsForStoreAsync(store.Id);
+            foreach (var mapping in audienceTypeListMaps)
             {
-                var member = await CreateMemberBySubscriptionAsync(subscription);
-                if (member == null)
-                    continue;
+                var typeId = mapping.TypeListId;
+                var listId = mapping.AudienceId;
 
-                if (string.IsNullOrEmpty(subscription.Email))
-                    continue;
+                //filter subscriptions by type
+                var storeSubscriptions = subscriptions.Where(subscription => subscription?.TypeId == typeId);
 
-                //create hash by email
-                var hash = _mailChimpManager.Members.Hash(subscription.Email);
+                foreach (var subscription in storeSubscriptions)
+                {
+                    var member = await CreateMemberBySubscriptionAsync(subscription);
+                    if (member == null)
+                        continue;
 
-                //prepare request path and operation ID
-                var requestPath = string.Format(MailChimpDefaults.MembersApiPath, listId, hash);
-                var operationId = $"createOrUpdate-subscription-{subscription.Id}-list-{listId}";
+                    if (string.IsNullOrEmpty(subscription.Email))
+                        continue;
 
-                //add operation
-                operations.Add(CreateOperation(member, OperationType.CreateOrUpdate, requestPath, operationId));
+                    //create hash by email
+                    var hash = _mailChimpManager.Members.Hash(subscription.Email);
+
+                    //prepare request path and operation ID
+                    var requestPath = string.Format(MailChimpDefaults.MembersApiPath, listId, hash);
+                    var operationId = $"createOrUpdate-subscription-{subscription.Id}-list-{listId}";
+
+                    //add operation
+                    operations.Add(CreateOperation(member, OperationType.CreateOrUpdate, requestPath, operationId));
+                }
             }
         }
 
@@ -558,31 +560,33 @@ public class MailChimpManager
 
         foreach (var store in await _storeService.GetAllStoresAsync())
         {
-            //try to get list ID for the store
-            var listId = await _settingService
-                .GetSettingByKeyAsync<string>($"{nameof(MailChimpSettings)}.{nameof(MailChimpSettings.ListId)}", storeId: store.Id, loadSharedValueIfNotFound: true);
-            if (string.IsNullOrEmpty(listId))
-                continue;
-
-            foreach (var record in records)
+            //try to get list IDs
+            var audienceTypeListMaps = await GetAudienceTypeListMapsForStoreAsync(store.Id);
+            foreach (var mapping in audienceTypeListMaps)
             {
-                //if subscription still exist, don't delete it from MailChimp
-                var subscription = await _newsLetterSubscriptionService.GetNewsLetterSubscriptionByEmailAndStoreIdAsync(record.Email, store.Id);
-                if (subscription != null)
-                    continue;
+                var typeId = mapping.TypeListId;
+                var listId = mapping.AudienceId;
 
-                if (string.IsNullOrEmpty(record.Email))
-                    continue;
+                foreach (var record in records)
+                {
+                    //if subscription still exist, don't delete it from MailChimp
+                    var subscriptions = await _newsLetterSubscriptionService.GetNewsLetterSubscriptionsByEmailAsync(record.Email, subscriptionTypeId: typeId);
+                    if (subscriptions != null)
+                        continue;
 
-                //create hash by email
-                var hash = _mailChimpManager.Members.Hash(record.Email);
+                    if (string.IsNullOrEmpty(record.Email))
+                        continue;
 
-                //prepare request path and operation ID
-                var requestPath = string.Format(MailChimpDefaults.MembersApiPath, listId, hash);
-                var operationId = $"delete-subscription-{record.EntityId}-list-{listId}";
+                    //create hash by email
+                    var hash = _mailChimpManager.Members.Hash(record.Email);
 
-                //add operation
-                operations.Add(CreateOperation<Mailchimp.Member>(null, OperationType.Delete, requestPath, operationId));
+                    //prepare request path and operation ID
+                    var requestPath = string.Format(MailChimpDefaults.MembersApiPath, listId, hash);
+                    var operationId = $"delete-subscription-{record.EntityId}-list-{listId}";
+
+                    //add operation
+                    operations.Add(CreateOperation<Mailchimp.Member>(null, OperationType.Delete, requestPath, operationId));
+                }
             }
         }
 
@@ -790,11 +794,10 @@ public class MailChimpManager
     /// </returns>
     private async Task<Mailchimp.Store> MapStoreAsync(Store store)
     {
-        var key = $"{nameof(MailChimpSettings)}.{nameof(MailChimpSettings.ListId)}";
         return store == null ? null : new Mailchimp.Store
         {
             Id = string.Format(_mailChimpSettings.StoreIdMask, store.Id),
-            ListId = await _settingService.GetSettingByKeyAsync<string>(key: key, storeId: store.Id, loadSharedValueIfNotFound: true),
+            ListId = Guid.Empty.ToString(),
             Name = store.Name,
             Domain = _webHelper.GetStoreLocation(),
             CurrencyCode = await GetCurrencyCodeAsync(),
@@ -1558,6 +1561,24 @@ public class MailChimpManager
     #region Methods
 
     /// <summary>
+    /// Get audience type list maps for a store
+    /// </summary>
+    /// <param name="storeId">Store identifier</param>
+    /// <returns>The asynchronous task whose result contains the list of audience type list maps</returns>
+    public async Task<List<AudienceTypeListMap>> GetAudienceTypeListMapsForStoreAsync(int storeId)
+    {
+        var key = $"{nameof(MailChimpSettings)}.{nameof(MailChimpSettings.SubscriptionTypeMappings)}";
+
+        //load settings for a chosen store scope
+        var subscriptionTypeMappingsSetting = await _settingService.GetSettingByKeyAsync(key, string.Empty, storeId: storeId, loadSharedValueIfNotFound: true);
+
+        if (string.IsNullOrEmpty(subscriptionTypeMappingsSetting))
+            return new List<AudienceTypeListMap>();
+
+        return JsonConvert.DeserializeObject<List<AudienceTypeListMap>>(subscriptionTypeMappingsSetting);
+    }
+
+    /// <summary>
     /// Synchronize data with MailChimp
     /// </summary>
     /// <param name="manualSynchronization">Whether it's a manual synchronization</param>
@@ -1659,7 +1680,7 @@ public class MailChimpManager
 
             //generate webhook URL
             var webhookUrl = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
-                .RouteUrl(MailChimpDefaults.WebhookRoute, null, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme);
+                .RouteUrl(MailChimpDefaults.Route.WebhookRoute, null, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme);
 
             //get current list webhooks 
             var listWebhooks = await _mailChimpManager.WebHooks.GetAllAsync(listId)
@@ -1704,7 +1725,7 @@ public class MailChimpManager
 
             //generate webhook URL
             var webhookUrl = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
-                .RouteUrl(MailChimpDefaults.WebhookRoute, null, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme);
+                .RouteUrl(MailChimpDefaults.Route.WebhookRoute, null, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme);
 
             //delete all webhook with matched URL
             var webhooksToDelete = allWebhooks.Where(webhook => webhook.Url.Equals(webhookUrl, StringComparison.InvariantCultureIgnoreCase));
@@ -1735,7 +1756,7 @@ public class MailChimpManager
 
             //generate webhook URL
             var webhookUrl = _urlHelperFactory.GetUrlHelper(_actionContextAccessor.ActionContext)
-                .RouteUrl(MailChimpDefaults.BatchWebhookRoute, null, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme);
+                .RouteUrl(MailChimpDefaults.Route.BatchWebhookRoute, null, _actionContextAccessor.ActionContext.HttpContext.Request.Scheme);
 
             //delete webhook if exists
             var batchWebhook = allBatchWebhooks
@@ -1791,14 +1812,8 @@ public class MailChimpManager
         return await HandleRequestAsync(async () =>
         {
             //try to get subscriber list identifier
-            if (!form.TryGetValue("data[list_id]", out var listId))
+            if (!form.TryGetValue("data[list_id]", out var list_Id))
                 return false;
-
-            //get stores that tied to a specific MailChimp list
-            var settingsName = $"{nameof(MailChimpSettings)}.{nameof(MailChimpSettings.ListId)}";
-            var storeIds = await (await _storeService.GetAllStoresAsync())
-                .WhereAwait(async store => listId.Equals(await _settingService.GetSettingByKeyAsync<string>(settingsName, storeId: store.Id, loadSharedValueIfNotFound: true)))
-                .Select(store => store.Id).ToListAsync();
 
             if (!form.TryGetValue("data[email]", out var email))
                 return false;
@@ -1811,17 +1826,27 @@ public class MailChimpManager
             var cleanedType = "cleaned";
             if (webhookType.Equals(unsubscribeType) || webhookType.Equals(cleanedType))
             {
-                //get existing subscriptions by email
-                var subscriptions = await storeIds
-                    .SelectAwait(async storeId => await _newsLetterSubscriptionService.GetNewsLetterSubscriptionByEmailAndStoreIdAsync(email, storeId))
-                    .Where(subscription => !string.IsNullOrEmpty(subscription?.Email)).ToListAsync();
-
-                foreach (var subscription in subscriptions)
+                foreach (var store in await _storeService.GetAllStoresAsync())
                 {
-                    //deactivate
-                    subscription.Active = false;
-                    await _newsLetterSubscriptionService.UpdateNewsLetterSubscriptionAsync(subscription, false);
-                    await _logger.InformationAsync($"MailChimp info. Email {subscription.Email} was unsubscribed from the store #{subscription.StoreId}");
+                    //get existing subscriptions by email
+                    var subscriptions = await _newsLetterSubscriptionService.GetNewsLetterSubscriptionsByEmailAsync(email, storeId: store.Id, isActive: true);
+
+                    var audienceTypeListMaps = await GetAudienceTypeListMapsForStoreAsync(store.Id);
+                    foreach (var mapping in audienceTypeListMaps)
+                    {
+                        var typeId = mapping.TypeListId;
+                        var listId = mapping.AudienceId;
+                        if (typeId == 0 || string.IsNullOrEmpty(listId) || !list_Id.Contains(listId.ToString()))
+                            continue;
+
+                        if (subscriptions.FirstOrDefault(subscription => subscription.TypeId == typeId) is not NewsLetterSubscription subscription)
+                            continue;
+
+                        //deactivate
+                        subscription.Active = false;
+                        await _newsLetterSubscriptionService.UpdateNewsLetterSubscriptionAsync(subscription, false);
+                        await _logger.InformationAsync($"{MailChimpDefaults.SystemName} unsubscription: email '{subscription.Email}', subscription type #{subscription.TypeId}");
+                    }
                 }
             }
 
@@ -1829,31 +1854,40 @@ public class MailChimpManager
             var subscribeType = "subscribe";
             if (webhookType.Equals(subscribeType))
             {
-                foreach (var storeId in storeIds)
+                foreach (var store in await _storeService.GetAllStoresAsync())
                 {
-                    var subscription = await _newsLetterSubscriptionService.GetNewsLetterSubscriptionByEmailAndStoreIdAsync(email, storeId);
+                    //get existing subscriptions by email
+                    var subscriptions = await _newsLetterSubscriptionService.GetNewsLetterSubscriptionsByEmailAsync(email, storeId: store.Id, isActive: false);
 
-                    //if subscription doesn't exist, create the new one
-                    if (subscription == null)
+                    var audienceTypeListMaps = await GetAudienceTypeListMapsForStoreAsync(store.Id);
+                    foreach (var mapping in audienceTypeListMaps)
                     {
-                        subscription = new NewsLetterSubscription
+                        var typeId = mapping.TypeListId;
+                        var listId = mapping.AudienceId;
+                        if (typeId == 0 || string.IsNullOrEmpty(listId) || !list_Id.Contains(listId.ToString()))
+                            continue;
+
+                        //if subscription doesn't exist, create the new one
+                        if (subscriptions.FirstOrDefault(subscription => subscription.TypeId == typeId) is not NewsLetterSubscription subscription)
                         {
-                            NewsLetterSubscriptionGuid = Guid.NewGuid(),
-                            Email = email,
-                            StoreId = storeId,
-                            Active = true,
-                            CreatedOnUtc = DateTime.UtcNow
-                        };
-                        await _newsLetterSubscriptionService.InsertNewsLetterSubscriptionAsync(subscription, false);
+                            subscription = new NewsLetterSubscription
+                            {
+                                NewsLetterSubscriptionGuid = Guid.NewGuid(),
+                                Email = email,
+                                Active = true,
+                                TypeId = typeId,
+                                CreatedOnUtc = DateTime.UtcNow
+                            };
+                            await _newsLetterSubscriptionService.InsertNewsLetterSubscriptionAsync(subscription, false);
+                        }
+                        else
+                        {
+                            //or just activate the existing one
+                            subscription.Active = true;
+                            await _newsLetterSubscriptionService.UpdateNewsLetterSubscriptionAsync(subscription, false);
+                        }
+                        await _logger.InformationAsync($"MailChimp info. Email {subscription.Email} has been subscribed to the store #{subscription.StoreId} with type #{subscription.TypeId}");
                     }
-                    else
-                    {
-                        //or just activate the existing one
-                        subscription.Active = true;
-                        await _newsLetterSubscriptionService.UpdateNewsLetterSubscriptionAsync(subscription, false);
-
-                    }
-                    await _logger.InformationAsync($"MailChimp info. Email {subscription.Email} has been subscribed to the store #{subscription.StoreId}");
                 }
             }
 

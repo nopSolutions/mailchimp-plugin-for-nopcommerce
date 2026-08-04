@@ -30,7 +30,7 @@
                     <br />
                     1. Sign up for a <a href="https://login.mailchimp.com/signup/" target="_blank"> MailChimp account</a>.<br />
                     2. Log in at the MailChimp service.<br />
-                    3. Go to 'Lists' page. Create a contact list with which newsletter subscribers of your store will be synchronized.<br />
+                    3. Go to 'Audience' page. Create a contact list with which newsletter subscribers of your store will be synchronized.<br />
                     4. Find 'API Keys' page by going Profile -> Extras -> API keys.<br />
                     5. Create a new key and copy it into the form below.<br />
                     6. Save.<br />
@@ -60,16 +60,27 @@
                         </div>
                     </div>
                 }
-                <div class="form-group row">
-                    <div class="col-md-3">
-                        <nop-override-store-checkbox asp-for="ListId_OverrideForStore" asp-input="ListId" asp-store-scope="@Model.ActiveStoreScopeConfiguration" />
-                        <nop-label asp-for="ListId" />
+                @for (int i = 0; i < Model.NewsLetterSubscriptionTypes.Count; i++)
+                {
+                    var mailChimpLists = await Model.AvailableLists.SelectAwait(async mailChimpList => new SelectListItem
+                    {
+                        Text = mailChimpList.Text,
+                        Value = mailChimpList.Value,
+                        Selected = mailChimpList.Value.Equals(Model.NewsLetterSubscriptionTypes[i].ListId.ToString())
+                    }).ToListAsync();
+
+                    <div class="form-group row">
+                        <div class="col-md-3">
+                            <input type="hidden" asp-for="NewsLetterSubscriptionTypes[i].TypeId" />
+                            <nop-label asp-for="@(Model.NewsLetterSubscriptionTypes[i].Name)" />
+                            <span style="padding-top: 7px;margin-right: 5px;float: right;font-weight: 600;">@Model.NewsLetterSubscriptionTypes[i].Name</span>
+                        </div>
+                        <div class="col-md-9">
+                            <nop-select asp-for="NewsLetterSubscriptionTypes[i].ListId" asp-items="@mailChimpLists" />
+                            <span asp-validation-for="NewsLetterSubscriptionTypes[i].ListId"></span>
+                        </div>
                     </div>
-                    <div class="col-md-9">
-                        <nop-select asp-for="ListId" asp-items="@Model.AvailableLists" />
-                        <span asp-validation-for="ListId"></span>
-                    </div>
-                </div>
+                }
                 <div class="form-group row">
                     <div class="col-md-3">
                         <nop-label asp-for="PassEcommerceData" />
@@ -155,7 +166,7 @@
 
                     function refresh(){
                         setTimeout(function() {
-                            $.get('@(Url.Action("IsSynchronizationComplete"))', function(data) {
+                            $.get('@(Url.Action("IsSynchronizationComplete", "MailChimp"))', function(data) {
                                 if (data) {
                                     window.location = window.location.href;
                                 }

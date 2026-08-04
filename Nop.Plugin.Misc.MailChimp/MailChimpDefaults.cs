@@ -31,16 +31,6 @@ public class MailChimpDefaults
     public static string DefaultStoreIdMask => "nopCommerce-store-{0}";
 
     /// <summary>
-    /// Name of the route to the batch webhook handler
-    /// </summary>
-    public static string BatchWebhookRoute => "Plugin.Misc.MailChimp.BatchWebhook";
-
-    /// <summary>
-    /// Name of the route to the webhook handler
-    /// </summary>
-    public static string WebhookRoute => "Plugin.Misc.MailChimp.Webhook";
-
-    /// <summary>
     /// An HTTP PATCH protocol method
     /// </summary>
     public static string PatchRequestMethod => "PATCH";
@@ -135,4 +125,29 @@ public class MailChimpDefaults
     /// Default batch operation number
     /// </summary>
     public static int DefaultBatchOperationNumber => 2000;
+
+    #region Route names
+
+    /// <summary>
+    /// Represents the route names
+    /// </summary>
+    public class Route
+    {
+        /// <summary>
+        /// Gets the configuration route name
+        /// </summary>
+        public static string Configuration => "Plugin.Misc.MailChimp.Configure";
+
+        /// <summary>
+        /// Name of the route to the batch webhook handler
+        /// </summary>
+        public static string BatchWebhookRoute => "Plugin.Misc.MailChimp.BatchWebhook";
+
+        /// <summary>
+        /// Name of the route to the webhook handler
+        /// </summary>
+        public static string WebhookRoute => "Plugin.Misc.MailChimp.Webhook";
+    }
+
+    #endregion
 }

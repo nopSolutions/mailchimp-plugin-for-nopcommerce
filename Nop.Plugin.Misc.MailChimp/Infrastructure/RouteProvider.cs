@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
+using Nop.Web.Framework;
 using Nop.Web.Framework.Mvc.Routing;
 
 namespace Nop.Plugin.Misc.MailChimp.Infrastructure;
@@ -15,12 +16,16 @@ public class RouteProvider : IRouteProvider
     /// <param name="endpointRouteBuilder">Route builder</param>
     public void RegisterRoutes(IEndpointRouteBuilder endpointRouteBuilder)
     {
+        endpointRouteBuilder.MapControllerRoute(name: MailChimpDefaults.Route.Configuration,
+            pattern: "Admin/MailChimp/Configure",
+            defaults: new { controller = "MailChimp", action = "Configure", area = AreaNames.ADMIN });
+
         //webhook routes
-        endpointRouteBuilder.MapControllerRoute(MailChimpDefaults.BatchWebhookRoute,
+        endpointRouteBuilder.MapControllerRoute(MailChimpDefaults.Route.BatchWebhookRoute,
             "Plugins/MailChimp/BatchWebhook",
             new { controller = "MailChimpWebhook", action = "BatchWebhook" });
 
-        endpointRouteBuilder.MapControllerRoute(MailChimpDefaults.WebhookRoute,
+        endpointRouteBuilder.MapControllerRoute(MailChimpDefaults.Route.WebhookRoute,
             "Plugins/MailChimp/Webhook",
             new { controller = "MailChimpWebhook", action = "WebHook" });
     }

@@ -1,11 +1,11 @@
-﻿using Nop.Core;
-using Nop.Core.Domain.ScheduleTasks;
+﻿using Nop.Core.Domain.ScheduleTasks;
 using Nop.Plugin.Misc.MailChimp.Services;
 using Nop.Services.Common;
 using Nop.Services.Configuration;
 using Nop.Services.Localization;
 using Nop.Services.Plugins;
 using Nop.Services.ScheduleTasks;
+using Nop.Web.Framework.Mvc.Routing;
 using Task = System.Threading.Tasks.Task;
 
 namespace Nop.Plugin.Misc.MailChimp;
@@ -18,9 +18,9 @@ public class MailChimpPlugin : BasePlugin, IMiscPlugin
     #region Fields
 
     private readonly ILocalizationService _localizationService;
+    private readonly INopUrlHelper _nopUrlHelper;
     private readonly IScheduleTaskService _scheduleTaskService;
     private readonly ISettingService _settingService;
-    private readonly IWebHelper _webHelper;
     private readonly MailChimpManager _mailChimpManager;
 
     #endregion
@@ -28,15 +28,15 @@ public class MailChimpPlugin : BasePlugin, IMiscPlugin
     #region Ctor
 
     public MailChimpPlugin(ILocalizationService localizationService,
+        INopUrlHelper nopUrlHelper,
         IScheduleTaskService scheduleTaskService,
         ISettingService settingService,
-        IWebHelper webHelper,
         MailChimpManager mailChimpManager)
     {
         _localizationService = localizationService;
+        _nopUrlHelper = nopUrlHelper;
         _scheduleTaskService = scheduleTaskService;
         _settingService = settingService;
-        _webHelper = webHelper;
         _mailChimpManager = mailChimpManager;
     }
 
@@ -49,7 +49,7 @@ public class MailChimpPlugin : BasePlugin, IMiscPlugin
     /// </summary>
     public override string GetConfigurationPageUrl()
     {
-        return $"{_webHelper.GetStoreLocation()}Admin/MailChimp/Configure";
+        return _nopUrlHelper.RouteUrl(MailChimpDefaults.Route.Configuration);
     }
 
     /// <summary>
@@ -61,7 +61,6 @@ public class MailChimpPlugin : BasePlugin, IMiscPlugin
         //settings
         await _settingService.SaveSettingAsync(new MailChimpSettings
         {
-            ListId = Guid.Empty.ToString(),
             StoreIdMask = MailChimpDefaults.DefaultStoreIdMask,
             BatchOperationNumber = MailChimpDefaults.DefaultBatchOperationNumber
         });
@@ -88,7 +87,7 @@ public class MailChimpPlugin : BasePlugin, IMiscPlugin
             ["Plugins.Misc.MailChimp.Fields.AutoSynchronization.Hint"] = "Determine whether to use auto synchronization.",
             ["Plugins.Misc.MailChimp.Fields.AutoSynchronization.Restart"] = "Auto synchronization parameters has been changed, please restart the application",
             ["Plugins.Misc.MailChimp.Fields.List"] = "List",
-            ["Plugins.Misc.MailChimp.Fields.List.Hint"] = "Choose list of users for the synchronization.",
+            ["Plugins.Misc.MailChimp.Fields.List.Hint"] = "Choose list of subscribers for the synchronization.",
             ["Plugins.Misc.MailChimp.Fields.List.NotExist"] = "There are no lists",
             ["Plugins.Misc.MailChimp.Fields.PassEcommerceData"] = "Pass E-Commerce data",
             ["Plugins.Misc.MailChimp.Fields.PassEcommerceData.Hint"] = "Determine whether to pass E-Commerce data (customers, products, orders, etc).",
