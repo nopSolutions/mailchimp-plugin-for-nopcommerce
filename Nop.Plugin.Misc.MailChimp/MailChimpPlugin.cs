@@ -88,6 +88,7 @@ public class MailChimpPlugin : BasePlugin, IMiscPlugin
             ["Plugins.Misc.MailChimp.Fields.AutoSynchronization.Restart"] = "Auto synchronization parameters has been changed, please restart the application",
             ["Plugins.Misc.MailChimp.Fields.List"] = "List",
             ["Plugins.Misc.MailChimp.Fields.List.Hint"] = "Choose list of subscribers for the synchronization.",
+            ["Plugins.Misc.MailChimp.Fields.List.NoSelected"] = "No list selected",
             ["Plugins.Misc.MailChimp.Fields.List.NotExist"] = "There are no lists",
             ["Plugins.Misc.MailChimp.Fields.PassEcommerceData"] = "Pass E-Commerce data",
             ["Plugins.Misc.MailChimp.Fields.PassEcommerceData.Hint"] = "Determine whether to pass E-Commerce data (customers, products, orders, etc).",

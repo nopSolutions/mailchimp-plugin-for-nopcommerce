@@ -107,7 +107,15 @@ public class MailChimpController : BasePluginController
         if (!string.IsNullOrEmpty(mailChimpSettings.ApiKey))
             model.AvailableLists = await _mailChimpManager.GetAvailableListsAsync() ?? new List<SelectListItem>();
 
-        if (!model.AvailableLists.Any())
+        if (model.AvailableLists.Any())
+        {
+            model.AvailableLists.Insert(0, new SelectListItem
+            {
+                Text = await _localizationService.GetResourceAsync("Plugins.Misc.MailChimp.Fields.List.NoSelected"),
+                Value = Guid.Empty.ToString()
+            });
+        }
+        else
         {
             //add the special item for 'there are no lists' with empty guid value
             model.AvailableLists.Add(new SelectListItem
